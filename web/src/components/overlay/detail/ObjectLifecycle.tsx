@@ -203,6 +203,20 @@ export default function ObjectLifecycle({
     setCurrent(index);
   };
 
+  const handleThumbnailNavigation = useCallback(
+    (direction: "next" | "previous") => {
+      if (!mainApi || !thumbnailApi || !eventSequence) return;
+      const newIndex =
+        direction === "next"
+          ? Math.min(current + 1, eventSequence.length - 1)
+          : Math.max(current - 1, 0);
+      mainApi.scrollTo(newIndex);
+      thumbnailApi.scrollTo(newIndex);
+      setCurrent(newIndex);
+    },
+    [mainApi, thumbnailApi, current, eventSequence],
+  );
+
   useEffect(() => {
     if (eventSequence && eventSequence.length > 0) {
       setTimeIndex(eventSequence?.[current].timestamp);
@@ -495,7 +509,7 @@ export default function ObjectLifecycle({
             containScroll: "keepSnaps",
             dragFree: true,
           }}
-          className="w-full max-w-[72%] md:max-w-[85%]"
+          className="max-w-[72%] md:max-w-[85%]"
           setApi={setThumbnailApi}
         >
           <CarouselContent
@@ -507,10 +521,7 @@ export default function ObjectLifecycle({
             {eventSequence.map((item, index) => (
               <CarouselItem
                 key={index}
-                className={cn(
-                  "basis-1/4 cursor-pointer pl-1 md:basis-[10%]",
-                  fullscreen && "md:basis-16",
-                )}
+                className={cn("basis-auto cursor-pointer pl-1")}
                 onClick={() => handleThumbnailClick(index)}
               >
                 <div className="p-1">
@@ -545,8 +556,14 @@ export default function ObjectLifecycle({
               </CarouselItem>
             ))}
           </CarouselContent>
-          <CarouselPrevious />
-          <CarouselNext />
+          <CarouselPrevious
+            disabled={current === 0}
+            onClick={() => handleThumbnailNavigation("previous")}
+          />
+          <CarouselNext
+            disabled={current === eventSequence.length - 1}
+            onClick={() => handleThumbnailNavigation("next")}
+          />
         </Carousel>
       </div>
     </div>
@@ -621,7 +638,7 @@ function getLifecycleItemDescription(lifecycleItem: ObjectLifecycleSequence) {
         )} detected for ${label}`;
       } else {
         title = `${
-          lifecycleItem.data.sub_label
+          lifecycleItem.data.label
         } recognized as ${lifecycleItem.data.attribute.replaceAll("_", " ")}`;
       }
       return title;
