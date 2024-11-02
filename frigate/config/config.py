@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 
 yaml = YAML()
 
-DEFAULT_CONFIG_FILES = ["/config/config.yaml", "/config/config.yml"]
+DEFAULT_CONFIG_FILE = "/config/config.yml"
 DEFAULT_CONFIG = """
 mqtt:
   enabled: False
@@ -634,27 +634,23 @@ class FrigateConfig(FrigateBaseModel):
 
     @classmethod
     def load(cls, **kwargs):
-        config_path = os.environ.get("CONFIG_FILE")
+        config_path = os.environ.get("CONFIG_FILE", DEFAULT_CONFIG_FILE)
 
-        # No explicit configuration file, try to find one in the default paths.
-        if config_path is None:
-            for path in DEFAULT_CONFIG_FILES:
-                if os.path.isfile(path):
-                    config_path = path
-                    break
+        if not os.path.isfile(config_path):
+            config_path = config_path.replace("yml", "yaml")
 
         # No configuration file found, create one.
         new_config = False
-        if config_path is None:
+        if not os.path.isfile(config_path):
             logger.info("No config file found, saving default config")
-            config_path = DEFAULT_CONFIG_FILES[-1]
+            config_path = DEFAULT_CONFIG_FILE
             new_config = True
         else:
             # Check if the config file needs to be migrated.
             migrate_frigate_config(config_path)
 
         # Finally, load the resulting configuration file.
-        with open(config_path, "a+") as f:
+        with open(config_path, "a+" if new_config else "r") as f:
             # Only write the default config if the opened file is non-empty. This can happen as
             # a race condition. It's extremely unlikely, but eh. Might as well check it.
             if new_config and f.tell() == 0:
