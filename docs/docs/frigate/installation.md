@@ -400,7 +400,7 @@ docker run \
   --name=frigate \
   --shm-size=256m \
   --restart=unless-stopped \
-  --env=TZ=America/New_York \
+  --env=TZ=Asia/Ho_Chi_Minh \
   --volume=/share/Container/frigate/config:/config:rw \
   --volume=/share/share_vol2/frigate/media:/media/frigate:rw \
   --network=bridge \
