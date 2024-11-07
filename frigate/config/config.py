@@ -127,7 +127,7 @@ class RuntimeMotionConfig(MotionConfig):
     def serialize_raw_mask(self, value: Any, info):
         return None
 
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow") # ignore
 
 
 class RuntimeFilterConfig(FilterConfig):
@@ -152,7 +152,7 @@ class RuntimeFilterConfig(FilterConfig):
             ret.pop("raw_mask")
         return ret
 
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="ignore")
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow") # ignore
 
 
 class RestreamConfig(BaseModel):

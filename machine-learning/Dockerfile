@@ -1,0 +1,122 @@
+ARG DEVICE=cuda
+
+FROM python:3.11-bookworm@sha256:9df8be5280f00f39931fc2168309e82ddf252a7f30cda6593b7990fb0f5f59f9 as builder-cpu
+
+FROM openvino/ubuntu22_runtime:2023.3.0@sha256:176646df619032ea6c10faf842867119c393e7497b7f88b5e307e932a0fd5aa8 as builder-openvino
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends python3-dev
+
+FROM builder-cpu as builder-cuda
+
+FROM builder-cpu as builder-armnn
+
+ENV ARMNN_PATH=/opt/armnn
+COPY ann /opt/ann
+RUN mkdir /opt/armnn && \
+    curl -SL "https://github.com/ARM-software/armnn/releases/download/v23.11/ArmNN-linux-aarch64.tar.gz" | tar -zx -C /opt/armnn && \
+    cd /opt/ann && \
+    sh build.sh
+
+FROM builder-${DEVICE} as builder
+
+ARG DEVICE
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=true \
+    VIRTUAL_ENV="/opt/venv" \
+    PATH="/opt/venv/bin:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends g++ \
+    libexpat1-dev \ 
+    libexpat1 \
+    build-essential \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    && apt-get clean
+    
+RUN python3 -m venv /opt/venv
+COPY requirements.txt ./
+    # opencv dependencies
+RUN pip install --upgrade pip && \
+    apt-get -qq install -y \
+    build-essential cmake git pkg-config libgtk-3-dev \
+    libavcodec-dev libavformat-dev libswscale-dev libv4l-dev \
+    libxvidcore-dev libx264-dev libjpeg-dev libpng-dev libtiff-dev \
+    gfortran openexr libatlas-base-dev libssl-dev\
+    # scipy dependencies
+    gcc gfortran libopenblas-dev liblapack-dev && \
+    pip install -r requirements.txt && \
+    rm -rf /var/lib/apt/lists/*
+## hard uninstall by anhlbt
+RUN pip uninstall -y onnxruntime onnxruntime-gpu && \
+    pip install onnxruntime-gpu --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/
+
+# RUN pip install --upgrade pip && pip install poetry
+# RUN poetry config installer.max-workers 10 && \
+#     poetry config virtualenvs.create false
+# RUN python3 -m venv /opt/venv
+
+# COPY poetry.lock pyproject.toml ./
+# RUN poetry install --sync --no-interaction --no-ansi --no-root --with ${DEVICE} --without dev
+
+FROM python:3.11-slim-bookworm@sha256:fc39d2e68b554c3f0a5cb8a776280c0b3d73b4c04b83dbade835e2a171ca27ef as prod-cpu
+
+FROM openvino/ubuntu22_runtime:2023.3.0@sha256:176646df619032ea6c10faf842867119c393e7497b7f88b5e307e932a0fd5aa8 as prod-openvino
+USER root
+
+FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04@sha256:2d913b09e6be8387e1a10976933642c73c840c0b735f0bf3c28d97fc9bc422e0 as prod-cuda
+
+COPY --from=builder-cuda /usr/local/bin/python3 /usr/local/bin/python3
+COPY --from=builder-cuda /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder-cuda /usr/local/lib/libpython3.11.so /usr/local/lib/libpython3.11.so
+
+FROM prod-cpu as prod-armnn
+
+ENV LD_LIBRARY_PATH=/opt/armnn
+
+RUN apt-get update && apt-get install -y --no-install-recommends ocl-icd-libopencl libexpat1-dev mesa-opencl-icd && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir --parents /etc/OpenCL/vendors && \
+    echo "/usr/lib/libmali.so" > /etc/OpenCL/vendors/mali.icd && \
+    mkdir /opt/armnn
+
+COPY --from=builder-armnn \
+    /opt/armnn/libarmnn.so.?? \
+    /opt/armnn/libarmnnOnnxParser.so.?? \
+    /opt/armnn/libarmnnDeserializer.so.?? \
+    /opt/armnn/libarmnnTfLiteParser.so.?? \
+    /opt/armnn/libprotobuf.so.?.??.?.? \
+    /opt/ann/libann.s[o] \
+    /opt/ann/build.sh \
+    /opt/armnn/
+
+FROM prod-${DEVICE} as prod
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libexpat1-dev tini libmimalloc2.0 && \
+    rm -rf /var/lib/apt/lists/* 
+    
+
+WORKDIR /usr/src/app
+# COPY requirements.txt ./
+ENV NODE_ENV=production \
+    TRANSFORMERS_CACHE=/cache \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/usr/src \
+    DEVICE=${DEVICE}
+
+# prevent core dumps
+RUN echo "hard core 0" >> /etc/security/limits.conf && \
+    echo "fs.suid_dumpable 0" >> /etc/sysctl.conf && \
+    echo 'ulimit -S -c 0 > /dev/null 2>&1' >> /etc/profile
+
+
+COPY --from=builder /opt/venv /opt/venv
+COPY ann/ann.py /usr/src/ann/ann.py
+COPY start.sh log_conf.json ./
+COPY app .
+ENTRYPOINT ["tini", "--"]
+CMD ["./start.sh"]

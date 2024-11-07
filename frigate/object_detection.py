@@ -98,6 +98,7 @@ class LocalObjectDetector(ObjectDetector):
 def run_detector(
     name: str,
     detection_queue: mp.Queue,
+    face_recognition_queue: mp.Queue,
     out_events: dict[str, mp.Event],
     avg_speed,
     start,
@@ -153,18 +154,37 @@ def run_detector(
 
     logger.info("Exited detection process...")
 
+## face recognition in local machine
+def face_recognition_worker(face_recognition_queue: mp.Queue):
+    while True:
+        try:
+            image, face_model, face_min_score = face_recognition_queue.get(timeout=1)
+        except queue.Empty:
+            logger.info("face recognition queue is empty")
+            continue
+        # try:
+        #     res = recognize_faces(image, face_model, face_min_score)
+        #     face_locations, face_labels= res[0]['boundingBox'], res[0]['score']
+        #     logger.info(f"Face recognition results: {face_labels} with locations {face_locations}")
+
+        # except Exception as e:
+        #     logger.error(f"Unexpected error during face recognition: {str(e)}")
+
+
 
 class ObjectDetectProcess:
     def __init__(
         self,
         name,
         detection_queue,
+        face_recognition_queue,
         out_events,
         detector_config,
     ):
         self.name = name
         self.out_events = out_events
         self.detection_queue = detection_queue
+        self.face_recognition_queue = face_recognition_queue
         self.avg_inference_speed = mp.Value("d", 0.01)
         self.detection_start = mp.Value("d", 0.0)
         self.detect_process = None
@@ -194,6 +214,7 @@ class ObjectDetectProcess:
             args=(
                 self.name,
                 self.detection_queue,
+                self.face_recognition_queue,
                 self.out_events,
                 self.avg_inference_speed,
                 self.detection_start,

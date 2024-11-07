@@ -36,9 +36,13 @@ class ModelTypeEnum(str, Enum):
     ssd = "ssd"
     yolox = "yolox"
     yolonas = "yolonas"
+    yolov5 = "yolov5"
+    yolov8 = "yolov8"
 
 
 class ModelConfig(BaseModel):
+    face_min_score: float = Field(default=0.034, title="face min score.")
+    face_model: Optional[str] = Field(title="face model name")    
     path: Optional[str] = Field(None, title="Custom Object detection model path.")
     labelmap_path: Optional[str] = Field(
         None, title="Label map for custom object detector."
@@ -185,7 +189,7 @@ class ModelConfig(BaseModel):
             label: color for label, color in zip(enabled_trackable_labels, colors)
         }
 
-    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+    model_config = ConfigDict(extra="allow", protected_namespaces=()) #  forbid
 
 
 class BaseDetectorConfig(BaseModel):

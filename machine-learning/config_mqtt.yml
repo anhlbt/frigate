@@ -1,0 +1,17 @@
+mqtt:
+  enabled: true
+  host: mqtt
+  port: 1883
+  topic_prefix: frigate-devcontainer
+  client_id: frigate-devcontainer
+  user: mqtt
+  password: lbtanh
+  frigate_host: "http://frigate:5000"
+  mqtt_topic: 
+    - frigate-devcontainer/+/person/snapshot # frigate-devcontainer/events
+    - frigate-devcontainer/events
+  tls_ca_certs: 
+  tls_client_cert: 
+  tls_client_key: 
+  tls_insecure: false
+  face_conf_cosin: 0.5 

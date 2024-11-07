@@ -81,6 +81,7 @@ class FrigateApp:
     def __init__(self, config: FrigateConfig) -> None:
         self.stop_event: MpEvent = mp.Event()
         self.detection_queue: Queue = mp.Queue()
+        self.face_recognition_queue: Queue = mp.Queue(maxsize=100)
         self.detectors: dict[str, ObjectDetectProcess] = {}
         self.detection_out_events: dict[str, MpEvent] = {}
         self.detection_shms: list[mp.shared_memory.SharedMemory] = []
@@ -347,6 +348,7 @@ class FrigateApp:
             self.detectors[name] = ObjectDetectProcess(
                 name,
                 self.detection_queue,
+                self.face_recognition_queue,
                 self.detection_out_events,
                 detector_config,
             )
@@ -661,6 +663,7 @@ class FrigateApp:
             detector.stop()
 
         empty_and_close_queue(self.detection_queue)
+        empty_and_close_queue(self.face_recognition_queue)
         logger.info("Detection queue closed")
 
         self.detected_frames_processor.join()

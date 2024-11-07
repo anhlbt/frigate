@@ -1,0 +1,4 @@
+chromadb
+pillow
+opencv-python
+face-recognition

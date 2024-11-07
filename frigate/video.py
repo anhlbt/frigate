@@ -124,7 +124,7 @@ def capture_frames(
             if len(shm_frames) > shm_frame_count:
                 expired_frame_name = shm_frames.pop(0)
                 frame_manager.delete(expired_frame_name)
-        except Exception:
+        except Exception as ex:
             # always delete the frame
             frame_manager.delete(frame_name)
 
@@ -132,7 +132,7 @@ def capture_frames(
             if stop_event.is_set():
                 break
 
-            logger.error(f"{config.name}: Unable to read frames from ffmpeg process.")
+            logger.error(f"{config.name}: Unable to read frames from ffmpeg process. with error: {ex}")
 
             if ffmpeg_process.poll() is not None:
                 logger.error(
