@@ -514,15 +514,18 @@ class FrigateApp:
                     1,
                 )
 
+        if cam_total_frame_size == 0.0:
+            return 0
+
         shm_frame_count = min(50, int(available_shm / (cam_total_frame_size)))
 
         logger.debug(
             f"Calculated total camera size {available_shm} / {cam_total_frame_size} :: {shm_frame_count} frames for each camera in SHM"
         )
 
-        if shm_frame_count < 10:
+        if shm_frame_count < 20:
             logger.warning(
-                f"The current SHM size of {total_shm}MB is too small, recommend increasing it to at least {round(min_req_shm + cam_total_frame_size * 10)}MB."
+                f"The current SHM size of {total_shm}MB is too small, recommend increasing it to at least {round(min_req_shm + cam_total_frame_size * 20)}MB."
             )
 
         return shm_frame_count

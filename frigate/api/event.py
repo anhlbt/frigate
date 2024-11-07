@@ -88,6 +88,7 @@ def events(params: EventsQueryParams = Depends()):
     is_submitted = params.is_submitted
     min_length = params.min_length
     max_length = params.max_length
+    event_id = params.event_id
 
     sort = params.sort
 
@@ -229,6 +230,9 @@ def events(params: EventsQueryParams = Depends()):
             clauses.append((Event.plus_id.is_null()))
         elif is_submitted > 0:
             clauses.append((Event.plus_id != ""))
+
+    if event_id is not None:
+        clauses.append((Event.id == event_id))
 
     if len(clauses) == 0:
         clauses.append((True))
@@ -1037,9 +1041,6 @@ def delete_event(request: Request, event_id: str):
         media = Path(f"{os.path.join(CLIPS_DIR, media_name)}.jpg")
         media.unlink(missing_ok=True)
         media = Path(f"{os.path.join(CLIPS_DIR, media_name)}-clean.png")
-        media.unlink(missing_ok=True)
-    if event.has_clip:
-        media = Path(f"{os.path.join(CLIPS_DIR, media_name)}.mp4")
         media.unlink(missing_ok=True)
 
     event.delete_instance()
