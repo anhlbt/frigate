@@ -711,6 +711,7 @@ def event_snapshot(
                             crop=params.crop,
                             height=params.height,
                             quality=params.quality,
+                            crop_box=params.crop_box,
                         )
         except Exception:
             return JSONResponse(

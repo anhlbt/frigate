@@ -231,6 +231,8 @@ class TrackedObject:
             "attributes": self.attributes,
             "current_attributes": self.obj_data["attributes"],
             "pending_loitering": self.pending_loitering,
+            "width": self.camera_config.detect.width, #anhlbt
+            "height": self.camera_config.detect.height,
         }
 
         if include_thumbnail:
@@ -286,7 +288,7 @@ class TrackedObject:
             return None
 
     def get_jpg_bytes(
-        self, timestamp=False, bounding_box=False, crop=False, height=None, quality=70
+        self, timestamp=False, bounding_box=False, crop=False, height=None, quality=70, crop_box = False
     ):
         if self.thumbnail_data is None:
             return None
@@ -348,7 +350,9 @@ class TrackedObject:
                 multiplier=1.1,
             )
             best_frame = best_frame[region[1] : region[3], region[0] : region[2]]
-
+        if crop_box:
+            box = self.thumbnail_data["box"]
+            best_frame = best_frame[box[1] : box[3], box[0] : box[2]]
         if height:
             width = int(height * best_frame.shape[1] / best_frame.shape[0])
             best_frame = cv2.resize(

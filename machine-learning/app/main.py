@@ -223,7 +223,7 @@ async def recognize(images: UploadFile = File(None), image: UploadFile | None = 
         # Perform face recognition
         result = face_db.recognize(img=inputs, include=["name", "id", "distance" "embedding"])
         if not result:
-            raise HTTPException(status_code=404, detail="Face not recognized")
+            raise HTTPException(status_code=404, detail=f"Face not recognized, result: {result}")
         
         return GetResponse(
             name=result["name"],
@@ -392,7 +392,7 @@ async def search(file: UploadFile = File(...)):
     if not results:
         raise HTTPException(status_code=404, detail="No matching records found")
     
-    return SearchResponse(results=[GetResponse(name=res["name"]) for res in results])
+    return SearchResponse(results=[GetResponse(name=res["name"], id=res["id"], embedding=res["embedding"]) for res in results])
 
 # Endpoint để truy vấn thông tin
 @app.get("/query", response_model=QueryResponse)

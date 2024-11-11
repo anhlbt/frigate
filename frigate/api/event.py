@@ -1056,7 +1056,7 @@ def delete_event(request: Request, event_id: str):
     )
 
 
-@router.post("/events/{camera_name}/{label}/create")
+@router.post("/events/{camera_name}/{label}/create") # /events/<camera_name>/<label>/create
 def create_event(
     request: Request,
     camera_name: str,

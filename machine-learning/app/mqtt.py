@@ -13,6 +13,8 @@ import numpy as np
 import cv2
 from datetime import datetime, timedelta
 from fastapi import UploadFile, File, HTTPException
+from PIL import Image
+import io
 
 logger = logging.getLogger(__name__)
 YAML_EXT = (".yaml", ".yml")
@@ -58,7 +60,7 @@ class MqttConfig(BaseModel):
     tls_client_cert: Optional[str] = Field(title="MQTT TLS Client Certificate")
     tls_client_key: Optional[str] = Field(title="MQTT TLS Client Key")
     tls_insecure: Optional[bool] = Field(title="MQTT TLS Insecure")
-    frigate_host: str = Field(default="http://frigate:5000", title="MQTT Host")
+    frigate_host: str = Field(default="http://frigate:5000", title="Frigate Host")
     mqtt_topic: List[str] = Field(default=["+/+/person"], title="MQTT Topics subscribed by face recognizer")
     face_conf_cosin: float = Field(default=0.5, title="face confidence score with metric cosine")
 
@@ -216,6 +218,7 @@ class MqttClient():
         
         return x, y, w, h
 
+
     def recognize_events(self, client, userdata, message):
         try:
             image_byte = None
@@ -247,7 +250,7 @@ class MqttClient():
                     # del event_tracker[topic][event_id]
                     return
 
-            if payload['type'] != 'end' and event_tracker[topic][event_id][0] < MAX_ATTEMPTS:
+            if payload['type'] != 'end' and event_tracker[topic][event_id][0] < MAX_ATTEMPTS:                # http://localhost:5000/api/events/1731137854.703315-ab4g5s/snapshot.jpg?crop=1&bbox=0
                 snapshot_url = f"{self.mqtt_config.frigate_host}/api/events/{event_id}/snapshot.jpg?crop=1&bbox=0"
                 try:
                     response = requests.get(snapshot_url)
@@ -256,14 +259,17 @@ class MqttClient():
                 except Exception as ce:
                     logger.error(f"Connection error: {ce}")
             if image_byte:
-                try:
+                try:             
                     response = requests.post(
                         "http://0.0.0.0:3003/recognize",
                         files=image_byte
                     )
+                    
                     if response.status_code == 200:
                         prediction = response.json()
+                        logger.warn(f"response: {prediction}")
                         camera = payload['before']['camera']
+                        
                         # client.publish(f"recognize_events_{camera}", json.dumps(prediction), retain=True)
                         # requests.post(f"{self.mqtt_config.frigate_host}/api/events/{event_id}/sub_label",
                         #               json={"subLabel": prediction['name'], "subLabelScore": round(prediction['distance'], 3)})
@@ -296,7 +302,7 @@ class MqttClient():
                 logger.error(f"Delete, failed to retrieve a valid image for event {event_id} after {event_tracker[topic][event_id][0]} attempts")
                 del event_tracker[topic][event_id]
         except Exception as e:
-            logger.error(f"Error processing frame from MQTT: {e}")
+            logger.error(f"Error processing frame from MQTT recognize_events: {e}")
 
 
 
@@ -314,7 +320,7 @@ class MqttClient():
             # requests.post(f"{self.mqtt_config.frigate_host}/api/events/{event_id}/sub_label", json={"subLabel": "face_recognition", "subLabelScore": round(0.232424, 2)})
             client.publish(f"face_{camera}", json.dumps(prediction), retain=True)
         except Exception as e:
-            logger.error(f"Error processing frame from MQTT: {e}")
+            logger.error(f"Error processing frame from MQTT recognize_snapshot: {e}")
 
        
 

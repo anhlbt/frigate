@@ -20,4 +20,5 @@ core
 .idea/*
 .ipynb_checkpoints
 machine-learning/
-mosquitto/
+mosquitto/*
+storage/

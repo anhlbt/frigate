@@ -59,15 +59,15 @@ services:
 
 
   devcontainer:
-    hostname: frigate-cam
-    container_name: frigate-cam
+    hostname: frigate
+    container_name: frigate
     # add groups from host for render, plugdev, video
     group_add:
       - "109" # render
       - "110" # render
       - "44"  # video
       - "46"  # plugdev
-    shm_size: "512mb"
+    shm_size: "1024mb"
     image: frigate:latest-tensorrt #ghcr.io/blakeblackshear/frigate:0.14.1-tensorrt #frigate:latest-tensorrt
     build:
       context: .
@@ -103,7 +103,7 @@ services:
     environment:
       - FRIGATE_RTSP_PASSWORD=admin
       - TZ=Asia/Ho_Chi_Minh
-      - PATH=/usr/lib/ffmpeg/7.0/bin:/usr/lib/ffmpeg/6.0/bin:/usr/lib/ffmpeg/5.0/bin:/usr/local/bin:/usr/local/sbin:/usr/local/go2rtc:/usr/local/nginx/sbin:/usr/local/tempio/bin:${PATH}
+      # - PATH=/usr/lib/ffmpeg/7.0/bin:/usr/lib/ffmpeg/6.0/bin:/usr/lib/ffmpeg/5.0/bin:/usr/local/bin:/usr/local/sbin:/usr/local/go2rtc:/usr/local/nginx/sbin:/usr/local/tempio/bin:${PATH}
 
     volumes:
       # - .:/workspace/frigate:cached
@@ -128,6 +128,7 @@ services:
       - "8555:8555/tcp" # M
       - "8555:8555/udp"
       - "5555:5555" # M      
+      - "5001:5001" 
     networks:
       - frigate
  
