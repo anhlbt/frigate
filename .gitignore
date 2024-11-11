@@ -21,3 +21,5 @@ core
 .ipynb_checkpoints
 machine-learning/
 mosquitto/
+frigate.code-workspace
+storage/
