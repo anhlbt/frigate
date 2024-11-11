@@ -20,5 +20,7 @@ core
 .idea/*
 .ipynb_checkpoints
 machine-learning/
-mosquitto/*
+mosquitto/
+frigate.code-workspace
 storage/
+mosquitto/
