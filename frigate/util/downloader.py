@@ -20,11 +20,11 @@ class FileLock:
         self.lock_file = f"{path}.lock"
 
         # we have not acquired the lock yet so it should not exist
-        if os.path.exists(self.lock_file):
-            try:
-                os.remove(self.lock_file)
-            except Exception:
-                pass
+        # if os.path.exists(self.lock_file):
+        #     try:
+        #         os.remove(self.lock_file)
+        #     except Exception:
+        #         pass
 
     def acquire(self):
         parent_dir = os.path.dirname(self.lock_file)
@@ -97,7 +97,7 @@ class ModelDownloader:
                 },
             )
 
-        self.requestor.stop()
+        # self.requestor.stop()
         self.download_complete.set()
 
     @staticmethod

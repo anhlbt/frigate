@@ -14,8 +14,9 @@ services:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
-    networks:
-      - frigate
+    # networks:
+    #   - frigate
+    network_mode: "host"      
     environment:
       - TZ=Asia/Ho_Chi_Minh
 
@@ -54,12 +55,13 @@ services:
     depends_on:
       - mqtt
     restart: unless-stopped
-    networks:
-      - frigate
+    # networks:
+    #   - frigate
+    network_mode: "host"  
 
 
   devcontainer:
-    hostname: frigate
+    hostname: frigate # don't change
     container_name: frigate
     # add groups from host for render, plugdev, video
     group_add:
@@ -76,15 +78,15 @@ services:
       target: devcontainer # to  build base image, need to uncommend this line
       # target: devcontainer-trt 
     ## Uncomment this block for nvidia gpu support
-    # deploy:
-    #       resources:
-    #           reservations:
-    #               devices:
-    #                   - driver: nvidia
-    #                     count: 1
-    #                     capabilities: [gpu]
-    environment:
-      YOLO_MODELS: yolov7-320
+    deploy:
+          resources:
+              reservations:
+                  devices:
+                      - driver: nvidia
+                        count: 1
+                        capabilities: [gpu]
+    # environment:
+    #   YOLO_MODELS: yolov7-320
     devices:
     - /dev/video0:/dev/video0
     - /dev/video1:/dev/video1
@@ -127,10 +129,10 @@ services:
       - "8555:8555/udp"
       - "5555:5555" # M      
       - "5001:5001" 
-    networks:
-      - frigate
- 
+    # networks:
+    #   - frigate
+    network_mode: "host"  
 
-networks:
-  frigate:
-    driver: bridge
+# networks:
+#   frigate:
+#     driver: bridge
