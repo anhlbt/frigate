@@ -624,7 +624,7 @@ class FrigateApp:
                     self.stats_emitter,
                     self.event_metadata_updater,
                 ),
-                host="127.0.0.1",
+                host="0.0.0.0",
                 port=5001,
                 log_level="error",
             )

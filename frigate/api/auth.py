@@ -85,7 +85,7 @@ def get_remote_addr(request: Request):
             return str(ip)
 
     # if there wasn't anything in the route, just return the default
-    return request.remote_addr or "127.0.0.1"
+    return request.remote_addr or "0.0.0.0"
 
 
 def get_jwt_secret() -> str:

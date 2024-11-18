@@ -129,6 +129,7 @@ services:
       - "8555:8555/udp"
       - "5555:5555" # M      
       - "5001:5001" 
+
     # networks:
     #   - frigate
     network_mode: "host"  

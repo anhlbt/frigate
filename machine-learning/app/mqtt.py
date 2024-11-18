@@ -60,7 +60,8 @@ class MqttConfig(BaseModel):
     tls_client_cert: Optional[str] = Field(title="MQTT TLS Client Certificate")
     tls_client_key: Optional[str] = Field(title="MQTT TLS Client Key")
     tls_insecure: Optional[bool] = Field(title="MQTT TLS Insecure")
-    frigate_host: str = Field(default="http://frigate:5000", title="Frigate Host")
+    frigate_host: str = Field(default="http://0.0.0.0:5000", title="Frigate Host")
+    ml_host: str = Field(default="http://0.0.0.0:3003", title="Machine learning api Host")
     mqtt_topic: List[str] = Field(default=["+/+/person"], title="MQTT Topics subscribed by face recognizer")
     face_conf_cosin: float = Field(default=0.5, title="face confidence score with metric cosine")
 
@@ -127,6 +128,7 @@ class MqttClient():
             # logger.info(f"Received MQTT message on topic: {message.topic}")
             topic = message.topic.replace(f"{self.mqtt_config.topic_prefix}/", "", 1)
             # payload = json.loads(message.payload.decode("utf-8"))  # not image
+            # logger.warning(f"message.payload {message.payload}")
             if 'events' in topic:
                 self.recognize_events(client, userdata, message)
             if 'person' in topic:
@@ -261,7 +263,7 @@ class MqttClient():
             if image_byte:
                 try:             
                     response = requests.post(
-                        "http://0.0.0.0:3003/recognize",
+                        f"{self.mqtt_config.ml_host}/recognize",
                         files=image_byte
                     )
                     
@@ -270,29 +272,30 @@ class MqttClient():
                         logger.warn(f"response: {prediction}")
                         camera = payload['before']['camera']
                         
-                        # client.publish(f"recognize_events_{camera}", json.dumps(prediction), retain=True)
-                        # requests.post(f"{self.mqtt_config.frigate_host}/api/events/{event_id}/sub_label",
-                        #               json={"subLabel": prediction['name'], "subLabelScore": round(prediction['distance'], 3)})
+                        client.publish(f"events_{camera}", json.dumps(prediction), retain=True)
+                        requests.post(f"{self.mqtt_config.frigate_host}/api/events/{event_id}/sub_label",
+                                      json={"subLabel": prediction['name'], "subLabelScore": round(prediction['distance'], 3)})
                         
 
-                        box= payload['before']['box']
-                        f_width= payload['before']['width']
-                        f_height= payload['before']['height']
-                        score = prediction['distance']
-                        requests.post(f"{self.mqtt_config.frigate_host}/api/events/{camera}/customer/create",
-                                      json={"label": "customer", "sub_label": prediction['name'], \
-                                            "draw": {
-                                                    # optional annotations that will be drawn on the snapshot
-                                                    "boxes": [
-                                                    {
-                                                        "box": self.convert_bbox_to_xywh(box, f_width, f_height), #[x, y, width, height], # box consists of x, y, width, height which are on a scale between 0 - 1
-                                                        "color": [255, 0, 0], # color of the box, default is red
-                                                        "score": round(score, 2) # optional score associated with the box
-                                                    }
-                                                    ]
-                                                }
-                                      }
-                                    )                        
+                        # box= payload['before']['box']
+                        # f_width= payload['before']['width']
+                        # f_height= payload['before']['height']
+                        # score = prediction['distance']
+                        # requests.post(f"{self.mqtt_config.frigate_host}/api/events/{camera}/customer/create",
+                        #               json={"label": "customer", "sub_label": prediction['name'], \
+                        #                     "draw": {
+                        #                             # optional annotations that will be drawn on the snapshot
+                        #                             "boxes": [
+                        #                             {
+                        #                                 "box": self.convert_bbox_to_xywh(box, f_width, f_height), #[x, y, width, height], # box consists of x, y, width, height which are on a scale between 0 - 1
+                        #                                 "color": [255, 0, 0], # color of the box, default is red
+                        #                                 "score": round(score, 2) # optional score associated with the box
+                        #                             }
+                        #                             ]
+                        #                         }
+                        #               }
+                        #             )   
+                                             
                         event_tracker[topic][event_id] = (event_tracker[topic][event_id][0], current_time, round(prediction['distance'], 3))
                     else:
                         logger.error(f"Failed to get prediction: {response.status_code} - {response.text}")
@@ -311,14 +314,15 @@ class MqttClient():
             logger.warn(f"processing frame from MQTT: {message.topic}")
             # if message.topic.split("/")[-2] == 'person':    
             response = requests.post(
-                "http://0.0.0.0:3003/recognize",
+                f"{self.mqtt_config.ml_host}/recognize",
                 files={"image": message.payload}  # frame_bytes.tobytes
             )
-            prediction = response.json()
-            logger.info(f"Prediction result: {prediction}")
-            camera = message.topic.split("/")[-3]
-            # requests.post(f"{self.mqtt_config.frigate_host}/api/events/{event_id}/sub_label", json={"subLabel": "face_recognition", "subLabelScore": round(0.232424, 2)})
-            client.publish(f"face_{camera}", json.dumps(prediction), retain=True)
+            if response.status_code == 200:
+                prediction = response.json()
+                logger.warn(f"Prediction result: {prediction}")
+                camera = message.topic.split("/")[-3]
+                # requests.post(f"{self.mqtt_config.frigate_host}/api/events/{event_id}/sub_label", json={"subLabel": prediction['name'], "subLabelScore": round(prediction['distance'], 3)})
+                client.publish(f"snapshot_{camera}", json.dumps(prediction), retain=True)
         except Exception as e:
             logger.error(f"Error processing frame from MQTT recognize_snapshot: {e}")
 

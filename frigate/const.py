@@ -9,7 +9,7 @@ RECORD_DIR = f"{BASE_DIR}/recordings"
 EXPORT_DIR = f"{BASE_DIR}/exports"
 BIRDSEYE_PIPE = "/tmp/cache/birdseye"
 CACHE_DIR = "/tmp/cache"
-FRIGATE_LOCALHOST = "http://127.0.0.1:5000"
+FRIGATE_LOCALHOST = "http://0.0.0.0:5000"
 PLUS_ENV_VAR = "PLUS_API_KEY"
 PLUS_API_HOST = "https://api.frigate.video"
 

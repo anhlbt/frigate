@@ -74,7 +74,7 @@ class WebSocketClient(Communicator):  # type: ignore[misc]
         # start a websocket server on 5002
         WebSocketWSGIHandler.http_version = "1.1"
         self.websocket_server = make_server(
-            "127.0.0.1",
+            "0.0.0.0",
             5002,
             server_class=WSGIServer,
             handler_class=WebSocketWSGIRequestHandler,

@@ -509,7 +509,7 @@ def auto_detect_hwaccel() -> str:
     try:
         cuda = False
         vaapi = False
-        resp = requests.get("http://127.0.0.1:1984/api/ffmpeg/hardware", timeout=3)
+        resp = requests.get("http://0.0.0.0:1984/api/ffmpeg/hardware", timeout=3)
 
         if resp.status_code == 200:
             data: dict[str, list[dict[str, str]]] = resp.json()

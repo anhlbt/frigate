@@ -48,7 +48,7 @@ def output_frames(
     # start a websocket server on 8082
     WebSocketWSGIHandler.http_version = "1.1"
     websocket_server = make_server(
-        "127.0.0.1",
+        "0.0.0.0",
         8082,
         server_class=WSGIServer,
         handler_class=WebSocketWSGIRequestHandler,

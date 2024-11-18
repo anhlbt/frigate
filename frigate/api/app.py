@@ -56,7 +56,7 @@ def config_schema(request: Request):
 
 @router.get("/go2rtc/streams")
 def go2rtc_streams():
-    r = requests.get("http://127.0.0.1:1984/api/streams")
+    r = requests.get("http://0.0.0.0:1984/api/streams")
     if not r.ok:
         logger.error("Failed to fetch streams from go2rtc")
         return JSONResponse(
@@ -73,7 +73,7 @@ def go2rtc_streams():
 @router.get("/go2rtc/streams/{camera_name}")
 def go2rtc_camera_stream(camera_name: str):
     r = requests.get(
-        f"http://127.0.0.1:1984/api/streams?src={camera_name}&video=all&audio=all&microphone"
+        f"http://0.0.0.0:1984/api/streams?src={camera_name}&video=all&audio=all&microphone"
     )
     if not r.ok:
         logger.error("Failed to fetch streams from go2rtc")
