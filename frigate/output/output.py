@@ -88,18 +88,17 @@ def output_frames(
 
         (
             camera,
+            frame_name,
             frame_time,
             current_tracked_objects,
             motion_boxes,
-            regions,
+            _,
         ) = data
 
-        frame_id = f"{camera}{frame_time}"
-
-        frame = frame_manager.get(frame_id, config.cameras[camera].frame_shape_yuv)
+        frame = frame_manager.get(frame_name, config.cameras[camera].frame_shape_yuv)
 
         if frame is None:
-            logger.debug(f"Failed to get frame {frame_id} from SHM")
+            logger.debug(f"Failed to get frame {frame_name} from SHM")
             failed_frame_requests[camera] = failed_frame_requests.get(camera, 0) + 1
 
             if failed_frame_requests[camera] > config.cameras[camera].detect.fps:
@@ -144,12 +143,15 @@ def output_frames(
         # check for any cameras that are currently offline
         # and need to generate a preview
         if generated_preview:
+            logger.debug(
+                "Checking for offline cameras because another camera generated a preview."
+            )
             for camera, time in preview_write_times.copy().items():
                 if time != 0 and frame_time - time > 10:
                     preview_recorders[camera].flag_offline(frame_time)
                     preview_write_times[camera] = frame_time
 
-        frame_manager.close(frame_id)
+        frame_manager.close(frame_name)
 
     move_preview_frames("clips")
 
@@ -161,15 +163,15 @@ def output_frames(
 
         (
             camera,
+            frame_name,
             frame_time,
             current_tracked_objects,
             motion_boxes,
             regions,
         ) = data
 
-        frame_id = f"{camera}{frame_time}"
-        frame = frame_manager.get(frame_id, config.cameras[camera].frame_shape_yuv)
-        frame_manager.close(frame_id)
+        frame = frame_manager.get(frame_name, config.cameras[camera].frame_shape_yuv)
+        frame_manager.close(frame_name)
 
     detection_subscriber.stop()
 
