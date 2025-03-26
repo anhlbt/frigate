@@ -104,7 +104,15 @@ services:
       - FRIGATE_RTSP_PASSWORD=admin
       - TZ=Asia/Ho_Chi_Minh
       # - PATH=/usr/lib/ffmpeg/7.0/bin:/usr/lib/ffmpeg/6.0/bin:/usr/lib/ffmpeg/5.0/bin:/usr/local/bin:/usr/local/sbin:/usr/local/go2rtc:/usr/local/nginx/sbin:/usr/local/tempio/bin:${PATH}
-
+    dns:
+    # ip route | awk '/default/ { print $3 }'
+    # sudo nano /etc/docker/daemon.json
+    # sudo systemctl restart docker
+      - 172.21.88.1 # Địa chỉ DNS của host hoặc gateway: ip route | awk '/default/ { print $3 }'
+      - 8.8.8.8
+      - 8.8.4.4
+      - 127.0.0.53
+      - 127.0.0.11    
     volumes:
       # - .:/workspace/frigate:cached
       # - ./web/dist:/opt/frigate/web:cached
