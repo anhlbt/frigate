@@ -219,19 +219,35 @@ def draw_box_with_label(
     text_width = size[0][0]
     text_height = size[0][1]
     line_height = text_height + size[1]
+    # get frame height
+    frame_height = frame.shape[0]
     # set the text start position
     if position == "ul":
         text_offset_x = x_min
-        text_offset_y = 0 if y_min < line_height else y_min - (line_height + 8)
+        text_offset_y = max(0, y_min - (line_height + 8))
     elif position == "ur":
-        text_offset_x = x_max - (text_width + 8)
-        text_offset_y = 0 if y_min < line_height else y_min - (line_height + 8)
+        text_offset_x = max(0, x_max - (text_width + 8))
+        text_offset_y = max(0, y_min - (line_height + 8))
     elif position == "bl":
         text_offset_x = x_min
-        text_offset_y = y_max
+        text_offset_y = min(frame_height - line_height, y_max)
     elif position == "br":
-        text_offset_x = x_max - (text_width + 8)
-        text_offset_y = y_max
+        text_offset_x = max(0, x_max - (text_width + 8))
+        text_offset_y = min(frame_height - line_height, y_max)
+    # Adjust position if it overlaps with the box or goes out of frame
+    if position in {"ul", "ur"}:
+        if text_offset_y < y_min + thickness:  # Label overlaps with the box
+            if y_min - (line_height + 8) < 0 and y_max + line_height <= frame_height:
+                # Not enough space above, and there is space below
+                text_offset_y = y_max
+            elif y_min - (line_height + 8) >= 0:
+                # Enough space above, keep the label at the top
+                text_offset_y = max(0, y_min - (line_height + 8))
+    elif position in {"bl", "br"}:
+        if text_offset_y + line_height > frame_height:
+            # If there's not enough space below, try above the box
+            text_offset_y = max(0, y_min - (line_height + 8))
+
     # make the coords of the box with a small padding of two pixels
     textbox_coords = (
         (text_offset_x, text_offset_y),
@@ -247,6 +263,19 @@ def draw_box_with_label(
         color=(0, 0, 0),
         thickness=2,
     )
+
+
+def grab_cv2_contours(cnts):
+    # if the length the contours tuple returned by cv2.findContours
+    # is '2' then we are using either OpenCV v2.4, v4-beta, or
+    # v4-official
+    if len(cnts) == 2:
+        return cnts[0]
+
+    # if the length of the contours tuple is '3' then we are using
+    # either OpenCV v3, v4-pre, or v4-alpha
+    elif len(cnts) == 3:
+        return cnts[1]
 
 
 def is_label_printable(label) -> bool:
@@ -616,6 +645,22 @@ def copy_yuv_to_position(
         )
 
 
+def get_blank_yuv_frame(width: int, height: int) -> np.ndarray:
+    """Creates a black YUV 4:2:0 frame."""
+    yuv_height = height * 3 // 2
+    yuv_frame = np.zeros((yuv_height, width), dtype=np.uint8)
+
+    uv_height = height // 2
+
+    # The U and V planes are stored after the Y plane.
+    u_start = height  # U plane starts right after Y plane
+    v_start = u_start + uv_height // 2  # V plane starts after U plane
+    yuv_frame[u_start : u_start + uv_height, :width] = 128
+    yuv_frame[v_start : v_start + uv_height, :width] = 128
+
+    return yuv_frame
+
+
 def yuv_region_2_yuv(frame, region):
     try:
         # TODO: does this copy the numpy array?
@@ -933,3 +978,32 @@ def get_image_from_recording(
         return process.stdout
     else:
         return None
+
+
+def get_histogram(image, x_min, y_min, x_max, y_max):
+    image_bgr = cv2.cvtColor(image, cv2.COLOR_YUV2BGR_I420)
+    image_bgr = image_bgr[y_min:y_max, x_min:x_max]
+
+    hist = cv2.calcHist(
+        [image_bgr], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256]
+    )
+    return cv2.normalize(hist, hist).flatten()
+
+
+def ensure_jpeg_bytes(image_data):
+    """Ensure image data is jpeg bytes for genai"""
+    try:
+        img_array = np.frombuffer(image_data, dtype=np.uint8)
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+        if img is None:
+            return image_data
+
+        success, encoded_img = cv2.imencode(".jpg", img)
+
+        if success:
+            return encoded_img.tobytes()
+    except Exception as e:
+        logger.warning(f"Error when converting thumbnail to jpeg for genai: {e}")
+
+    return image_data

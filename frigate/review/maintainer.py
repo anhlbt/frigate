@@ -7,7 +7,6 @@ import random
 import string
 import sys
 import threading
-from enum import Enum
 from multiprocessing.synchronize import Event as MpEvent
 from pathlib import Path
 from typing import Optional
@@ -24,9 +23,9 @@ from frigate.const import (
     CLIPS_DIR,
     UPSERT_REVIEW_SEGMENT,
 )
-from frigate.events.external import ManualEventState
 from frigate.models import ReviewSegment
-from frigate.object_processing import TrackedObject
+from frigate.review.types import SeverityEnum
+from frigate.track.object_processing import ManualEventState, TrackedObject
 from frigate.util.image import SharedMemoryFrameManager, calculate_16_9_crop
 
 logger = logging.getLogger(__name__)
@@ -37,11 +36,6 @@ THUMB_WIDTH = 320
 
 THRESHOLD_ALERT_ACTIVITY = 120
 THRESHOLD_DETECTION_ACTIVITY = 30
-
-
-class SeverityEnum(str, Enum):
-    alert = "alert"
-    detection = "detection"
 
 
 class PendingReviewSegment:
@@ -153,7 +147,9 @@ class ReviewSegmentMaintainer(threading.Thread):
 
         # create communication for review segments
         self.requestor = InterProcessRequestor()
-        self.config_subscriber = ConfigSubscriber("config/record/")
+        self.record_config_subscriber = ConfigSubscriber("config/record/")
+        self.review_config_subscriber = ConfigSubscriber("config/review/")
+        self.enabled_config_subscriber = ConfigSubscriber("config/enabled/")
         self.detection_subscriber = DetectionSubscriber(DetectionTypeEnum.all)
 
         # manual events
@@ -185,6 +181,9 @@ class ReviewSegmentMaintainer(threading.Thread):
                 }
             ),
         )
+        self.requestor.send_data(
+            f"{segment.camera}/review_status", segment.severity.value.upper()
+        )
 
     def _publish_segment_update(
         self,
@@ -210,6 +209,9 @@ class ReviewSegmentMaintainer(threading.Thread):
                 }
             ),
         )
+        self.requestor.send_data(
+            f"{segment.camera}/review_status", segment.severity.value.upper()
+        )
 
     def _publish_segment_end(
         self,
@@ -229,7 +231,15 @@ class ReviewSegmentMaintainer(threading.Thread):
                 }
             ),
         )
+        self.requestor.send_data(f"{segment.camera}/review_status", "NONE")
         self.active_review_segments[segment.camera] = None
+
+    def end_segment(self, camera: str) -> None:
+        """End the pending segment for a camera."""
+        segment = self.active_review_segments.get(camera)
+        if segment:
+            prev_data = segment.get_data(False)
+            self._publish_segment_end(segment, prev_data)
 
     def update_existing_segment(
         self,
@@ -250,7 +260,8 @@ class ReviewSegmentMaintainer(threading.Thread):
 
         if len(active_objects) > 0:
             has_activity = True
-            should_update = False
+            should_update_image = False
+            should_update_state = False
 
             if frame_time > segment.last_update:
                 segment.last_update = frame_time
@@ -261,7 +272,7 @@ class ReviewSegmentMaintainer(threading.Thread):
                 elif object["sub_label"][0] in self.config.model.all_attributes:
                     segment.detections[object["id"]] = object["sub_label"][0]
                 else:
-                    segment.detections[object["id"]] = f'{object["label"]}-verified'
+                    segment.detections[object["id"]] = f"{object['label']}-verified"
                     segment.sub_labels[object["id"]] = object["sub_label"][0]
 
                 # if object is alert label
@@ -278,9 +289,11 @@ class ReviewSegmentMaintainer(threading.Thread):
                             & set(camera_config.review.alerts.required_zones)
                         )
                     )
+                    and camera_config.review.alerts.enabled
                 ):
                     segment.severity = SeverityEnum.alert
-                    should_update = True
+                    should_update_state = True
+                    should_update_image = True
 
                 # keep zones up to date
                 if len(object["current_zones"]) > 0:
@@ -289,17 +302,24 @@ class ReviewSegmentMaintainer(threading.Thread):
                             segment.zones.append(zone)
 
             if len(active_objects) > segment.frame_active_count:
-                should_update = True
+                should_update_state = True
+                should_update_image = True
 
-            if should_update:
+            if prev_data["data"]["sub_labels"] != list(segment.sub_labels.values()):
+                should_update_state = True
+
+            if should_update_state:
                 try:
-                    yuv_frame = self.frame_manager.get(
-                        frame_name, camera_config.frame_shape_yuv
-                    )
+                    if should_update_image:
+                        yuv_frame = self.frame_manager.get(
+                            frame_name, camera_config.frame_shape_yuv
+                        )
 
-                    if yuv_frame is None:
-                        logger.debug(f"Failed to get frame {frame_name} from SHM")
-                        return
+                        if yuv_frame is None:
+                            logger.debug(f"Failed to get frame {frame_name} from SHM")
+                            return
+                    else:
+                        yuv_frame = None
 
                     self._publish_segment_update(
                         segment, camera_config, yuv_frame, active_objects, prev_data
@@ -357,7 +377,7 @@ class ReviewSegmentMaintainer(threading.Thread):
                 elif object["sub_label"][0] in self.config.model.all_attributes:
                     detections[object["id"]] = object["sub_label"][0]
                 else:
-                    detections[object["id"]] = f'{object["label"]}-verified'
+                    detections[object["id"]] = f"{object['label']}-verified"
                     sub_labels[object["id"]] = object["sub_label"][0]
 
                 # if object is alert label
@@ -374,13 +394,14 @@ class ReviewSegmentMaintainer(threading.Thread):
                             & set(camera_config.review.alerts.required_zones)
                         )
                     )
+                    and camera_config.review.alerts.enabled
                 ):
                     severity = SeverityEnum.alert
 
                 # if object is detection label
                 # and review is not already a detection or alert
                 # and has entered required zones or required zones is not set
-                # mark this review as alert
+                # mark this review as detection
                 if (
                     not severity
                     and (
@@ -395,6 +416,7 @@ class ReviewSegmentMaintainer(threading.Thread):
                             & set(camera_config.review.detections.required_zones)
                         )
                     )
+                    and camera_config.review.detections.enabled
                 ):
                     severity = SeverityEnum.detection
 
@@ -435,15 +457,40 @@ class ReviewSegmentMaintainer(threading.Thread):
             # check if there is an updated config
             while True:
                 (
-                    updated_topic,
+                    updated_record_topic,
                     updated_record_config,
-                ) = self.config_subscriber.check_for_update()
+                ) = self.record_config_subscriber.check_for_update()
 
-                if not updated_topic:
+                (
+                    updated_review_topic,
+                    updated_review_config,
+                ) = self.review_config_subscriber.check_for_update()
+
+                (
+                    updated_enabled_topic,
+                    updated_enabled_config,
+                ) = self.enabled_config_subscriber.check_for_update()
+
+                if (
+                    not updated_record_topic
+                    and not updated_review_topic
+                    and not updated_enabled_topic
+                ):
                     break
 
-                camera_name = updated_topic.rpartition("/")[-1]
-                self.config.cameras[camera_name].record = updated_record_config
+                if updated_record_topic:
+                    camera_name = updated_record_topic.rpartition("/")[-1]
+                    self.config.cameras[camera_name].record = updated_record_config
+
+                if updated_review_topic:
+                    camera_name = updated_review_topic.rpartition("/")[-1]
+                    self.config.cameras[camera_name].review = updated_review_config
+
+                if updated_enabled_config:
+                    camera_name = updated_enabled_topic.rpartition("/")[-1]
+                    self.config.cameras[
+                        camera_name
+                    ].enabled = updated_enabled_config.enabled
 
             (topic, data) = self.detection_subscriber.check_for_update(timeout=1)
 
@@ -466,7 +513,7 @@ class ReviewSegmentMaintainer(threading.Thread):
                     _,
                     audio_detections,
                 ) = data
-            elif topic == DetectionTypeEnum.api:
+            elif topic == DetectionTypeEnum.api or DetectionTypeEnum.lpr:
                 (
                     camera,
                     frame_time,
@@ -478,12 +525,27 @@ class ReviewSegmentMaintainer(threading.Thread):
 
             current_segment = self.active_review_segments.get(camera)
 
-            if not self.config.cameras[camera].record.enabled:
+            if (
+                not self.config.cameras[camera].enabled
+                or not self.config.cameras[camera].record.enabled
+            ):
                 if current_segment:
-                    self.update_existing_segment(current_segment, frame_time, [])
-
+                    self.end_segment(camera)
                 continue
 
+            # Check if the current segment should be processed based on enabled settings
+            if current_segment:
+                if (
+                    current_segment.severity == SeverityEnum.alert
+                    and not self.config.cameras[camera].review.alerts.enabled
+                ) or (
+                    current_segment.severity == SeverityEnum.detection
+                    and not self.config.cameras[camera].review.detections.enabled
+                ):
+                    self.end_segment(camera)
+                    continue
+
+            # If we reach here, the segment can be processed (if it exists)
             if current_segment is not None:
                 if topic == DetectionTypeEnum.video:
                     self.update_existing_segment(
@@ -499,20 +561,32 @@ class ReviewSegmentMaintainer(threading.Thread):
                         current_segment.last_update = frame_time
 
                     for audio in audio_detections:
-                        if audio in camera_config.review.alerts.labels:
+                        if (
+                            audio in camera_config.review.alerts.labels
+                            and camera_config.review.alerts.enabled
+                        ):
                             current_segment.audio.add(audio)
                             current_segment.severity = SeverityEnum.alert
                         elif (
                             camera_config.review.detections.labels is None
                             or audio in camera_config.review.detections.labels
-                        ):
+                        ) and camera_config.review.detections.enabled:
                             current_segment.audio.add(audio)
-                elif topic == DetectionTypeEnum.api:
+                elif topic == DetectionTypeEnum.api or topic == DetectionTypeEnum.lpr:
                     if manual_info["state"] == ManualEventState.complete:
                         current_segment.detections[manual_info["event_id"]] = (
                             manual_info["label"]
                         )
-                        current_segment.severity = SeverityEnum.alert
+                        if (
+                            topic == DetectionTypeEnum.api
+                            and self.config.cameras[camera].review.alerts.enabled
+                        ):
+                            current_segment.severity = SeverityEnum.alert
+                        elif (
+                            topic == DetectionTypeEnum.lpr
+                            and self.config.cameras[camera].review.detections.enabled
+                        ):
+                            current_segment.severity = SeverityEnum.detection
                         current_segment.last_update = manual_info["end_time"]
                     elif manual_info["state"] == ManualEventState.start:
                         self.indefinite_events[camera][manual_info["event_id"]] = (
@@ -521,7 +595,16 @@ class ReviewSegmentMaintainer(threading.Thread):
                         current_segment.detections[manual_info["event_id"]] = (
                             manual_info["label"]
                         )
-                        current_segment.severity = SeverityEnum.alert
+                        if (
+                            topic == DetectionTypeEnum.api
+                            and self.config.cameras[camera].review.alerts.enabled
+                        ):
+                            current_segment.severity = SeverityEnum.alert
+                        elif (
+                            topic == DetectionTypeEnum.lpr
+                            and self.config.cameras[camera].review.detections.enabled
+                        ):
+                            current_segment.severity = SeverityEnum.detection
 
                         # temporarily make it so this event can not end
                         current_segment.last_update = sys.maxsize
@@ -530,19 +613,25 @@ class ReviewSegmentMaintainer(threading.Thread):
 
                         if event_id in self.indefinite_events[camera]:
                             self.indefinite_events[camera].pop(event_id)
-                            current_segment.last_update = manual_info["end_time"]
+
+                            if len(self.indefinite_events[camera]) == 0:
+                                current_segment.last_update = manual_info["end_time"]
                         else:
                             logger.error(
                                 f"Event with ID {event_id} has a set duration and can not be ended manually."
                             )
             else:
                 if topic == DetectionTypeEnum.video:
-                    self.check_if_new_segment(
-                        camera,
-                        frame_name,
-                        frame_time,
-                        current_tracked_objects,
-                    )
+                    if (
+                        self.config.cameras[camera].review.alerts.enabled
+                        or self.config.cameras[camera].review.detections.enabled
+                    ):
+                        self.check_if_new_segment(
+                            camera,
+                            frame_name,
+                            frame_time,
+                            current_tracked_objects,
+                        )
                 elif topic == DetectionTypeEnum.audio and len(audio_detections) > 0:
                     severity = None
 
@@ -550,13 +639,16 @@ class ReviewSegmentMaintainer(threading.Thread):
                     detections = set()
 
                     for audio in audio_detections:
-                        if audio in camera_config.review.alerts.labels:
+                        if (
+                            audio in camera_config.review.alerts.labels
+                            and camera_config.review.alerts.enabled
+                        ):
                             detections.add(audio)
                             severity = SeverityEnum.alert
                         elif (
                             camera_config.review.detections.labels is None
                             or audio in camera_config.review.detections.labels
-                        ):
+                        ) and camera_config.review.detections.enabled:
                             detections.add(audio)
 
                             if not severity:
@@ -573,28 +665,64 @@ class ReviewSegmentMaintainer(threading.Thread):
                             detections,
                         )
                 elif topic == DetectionTypeEnum.api:
-                    self.active_review_segments[camera] = PendingReviewSegment(
-                        camera,
-                        frame_time,
-                        SeverityEnum.alert,
-                        {manual_info["event_id"]: manual_info["label"]},
-                        {},
-                        [],
-                        set(),
-                    )
-
-                    if manual_info["state"] == ManualEventState.start:
-                        self.indefinite_events[camera][manual_info["event_id"]] = (
-                            manual_info["label"]
+                    if self.config.cameras[camera].review.alerts.enabled:
+                        self.active_review_segments[camera] = PendingReviewSegment(
+                            camera,
+                            frame_time,
+                            SeverityEnum.alert,
+                            {manual_info["event_id"]: manual_info["label"]},
+                            {},
+                            [],
+                            set(),
                         )
-                        # temporarily make it so this event can not end
-                        self.active_review_segments[camera].last_update = sys.maxsize
-                    elif manual_info["state"] == ManualEventState.complete:
-                        self.active_review_segments[camera].last_update = manual_info[
-                            "end_time"
-                        ]
 
-        self.config_subscriber.stop()
+                        if manual_info["state"] == ManualEventState.start:
+                            self.indefinite_events[camera][manual_info["event_id"]] = (
+                                manual_info["label"]
+                            )
+                            # temporarily make it so this event can not end
+                            self.active_review_segments[
+                                camera
+                            ].last_update = sys.maxsize
+                        elif manual_info["state"] == ManualEventState.complete:
+                            self.active_review_segments[
+                                camera
+                            ].last_update = manual_info["end_time"]
+                    else:
+                        logger.warning(
+                            f"Manual event API has been called for {camera}, but alerts are disabled. This manual event will not appear as an alert."
+                        )
+                elif topic == DetectionTypeEnum.lpr:
+                    if self.config.cameras[camera].review.detections.enabled:
+                        self.active_review_segments[camera] = PendingReviewSegment(
+                            camera,
+                            frame_time,
+                            SeverityEnum.detection,
+                            {manual_info["event_id"]: manual_info["label"]},
+                            {},
+                            [],
+                            set(),
+                        )
+
+                        if manual_info["state"] == ManualEventState.start:
+                            self.indefinite_events[camera][manual_info["event_id"]] = (
+                                manual_info["label"]
+                            )
+                            # temporarily make it so this event can not end
+                            self.active_review_segments[
+                                camera
+                            ].last_update = sys.maxsize
+                        elif manual_info["state"] == ManualEventState.complete:
+                            self.active_review_segments[
+                                camera
+                            ].last_update = manual_info["end_time"]
+                    else:
+                        logger.warning(
+                            f"Dedicated LPR camera API has been called for {camera}, but detections are disabled. LPR events will not appear as a detection."
+                        )
+
+        self.record_config_subscriber.stop()
+        self.review_config_subscriber.stop()
         self.requestor.stop()
         self.detection_subscriber.stop()
         logger.info("Exiting review maintainer...")

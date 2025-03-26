@@ -22,7 +22,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { isEqual } from "lodash";
 import { formatDateToLocaleString } from "@/utils/dateUtil";
 import SearchThumbnailFooter from "@/components/card/SearchThumbnailFooter";
-import SearchSettings from "@/components/settings/SearchSettings";
+import ExploreSettings from "@/components/settings/SearchSettings";
 import {
   Tooltip,
   TooltipContent,
@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/tooltip";
 import Chip from "@/components/indicators/Chip";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
+import SearchActionGroup from "@/components/filter/SearchActionGroup";
+import { useTranslation } from "react-i18next";
 
 type SearchViewProps = {
   search: string;
@@ -69,6 +71,7 @@ export default function SearchView({
   setColumns,
   setDefaultView,
 }: SearchViewProps) {
+  const { t } = useTranslation(["views/explore"]);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
@@ -120,6 +123,9 @@ export default function SearchView({
   }, [config, searchFilter]);
 
   const { data: allSubLabels } = useSWR("sub_labels");
+  const { data: allRecognizedLicensePlates } = useSWR(
+    "recognized_license_plates",
+  );
 
   const allZones = useMemo<string[]>(() => {
     if (!config) {
@@ -157,12 +163,22 @@ export default function SearchView({
       after: [formatDateToLocaleString(-5)],
       min_score: ["50"],
       max_score: ["100"],
+      min_speed: ["1"],
+      max_speed: ["150"],
+      recognized_license_plate: allRecognizedLicensePlates,
       has_clip: ["yes", "no"],
       has_snapshot: ["yes", "no"],
       ...(config?.plus?.enabled &&
         searchFilter?.has_snapshot && { is_submitted: ["yes", "no"] }),
     }),
-    [config, allLabels, allZones, allSubLabels, searchFilter],
+    [
+      config,
+      allLabels,
+      allZones,
+      allSubLabels,
+      allRecognizedLicensePlates,
+      searchFilter,
+    ],
   );
 
   // remove duplicate event ids
@@ -181,20 +197,53 @@ export default function SearchView({
 
   // search interaction
 
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [selectedObjects, setSelectedObjects] = useState<string[]>([]);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const onSelectSearch = useCallback(
-    (item: SearchResult, index: number, page: SearchTab = "details") => {
-      setPage(page);
-      setSearchDetail(item);
-      setSelectedIndex(index);
+    (item: SearchResult, ctrl: boolean, page: SearchTab = "details") => {
+      if (selectedObjects.length > 1 || ctrl) {
+        const index = selectedObjects.indexOf(item.id);
+
+        if (index != -1) {
+          if (selectedObjects.length == 1) {
+            setSelectedObjects([]);
+          } else {
+            const copy = [
+              ...selectedObjects.slice(0, index),
+              ...selectedObjects.slice(index + 1),
+            ];
+            setSelectedObjects(copy);
+          }
+        } else {
+          const copy = [...selectedObjects];
+          copy.push(item.id);
+          setSelectedObjects(copy);
+        }
+      } else {
+        setPage(page);
+        setSearchDetail(item);
+      }
     },
-    [],
+    [selectedObjects],
   );
 
+  const onSelectAllObjects = useCallback(() => {
+    if (!uniqueResults || uniqueResults.length == 0) {
+      return;
+    }
+
+    if (selectedObjects.length < uniqueResults.length) {
+      setSelectedObjects(uniqueResults.map((value) => value.id));
+    } else {
+      setSelectedObjects([]);
+    }
+  }, [uniqueResults, selectedObjects]);
+
   useEffect(() => {
-    setSelectedIndex(0);
+    setSelectedObjects([]);
+    // unselect items when search term or filter changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, searchFilter]);
 
   // confidence score
@@ -243,23 +292,44 @@ export default function SearchView({
       }
 
       switch (key) {
-        case "ArrowLeft":
-          setSelectedIndex((prevIndex) => {
-            const newIndex =
-              prevIndex === null
-                ? uniqueResults.length - 1
-                : (prevIndex - 1 + uniqueResults.length) % uniqueResults.length;
-            setSearchDetail(uniqueResults[newIndex]);
-            return newIndex;
-          });
+        case "a":
+          if (modifiers.ctrl) {
+            onSelectAllObjects();
+          }
           break;
-        case "ArrowRight":
-          setSelectedIndex((prevIndex) => {
+        case "ArrowLeft":
+          if (uniqueResults.length > 0) {
+            const currentIndex = searchDetail
+              ? uniqueResults.findIndex(
+                  (result) => result.id === searchDetail.id,
+                )
+              : -1;
+
             const newIndex =
-              prevIndex === null ? 0 : (prevIndex + 1) % uniqueResults.length;
+              currentIndex === -1
+                ? uniqueResults.length - 1
+                : (currentIndex - 1 + uniqueResults.length) %
+                  uniqueResults.length;
+
             setSearchDetail(uniqueResults[newIndex]);
-            return newIndex;
-          });
+          }
+          break;
+
+        case "ArrowRight":
+          if (uniqueResults.length > 0) {
+            const currentIndex = searchDetail
+              ? uniqueResults.findIndex(
+                  (result) => result.id === searchDetail.id,
+                )
+              : -1;
+
+            const newIndex =
+              currentIndex === -1
+                ? 0
+                : (currentIndex + 1) % uniqueResults.length;
+
+            setSearchDetail(uniqueResults[newIndex]);
+          }
           break;
         case "PageDown":
           contentRef.current?.scrollBy({
@@ -275,32 +345,80 @@ export default function SearchView({
           break;
       }
     },
-    [uniqueResults, inputFocused],
+    [uniqueResults, inputFocused, onSelectAllObjects, searchDetail],
   );
 
   useKeyboardListener(
-    ["ArrowLeft", "ArrowRight", "PageDown", "PageUp"],
+    ["a", "ArrowLeft", "ArrowRight", "PageDown", "PageUp"],
     onKeyboardShortcut,
     !inputFocused,
   );
 
   // scroll into view
 
+  const [prevSearchDetail, setPrevSearchDetail] = useState<
+    SearchResult | undefined
+  >();
+
+  // keep track of previous ref to outline thumbnail when dialog closes
+  const prevSearchDetailRef = useRef<SearchResult | undefined>();
+
   useEffect(() => {
-    if (
-      selectedIndex !== null &&
-      uniqueResults &&
-      itemRefs.current?.[selectedIndex]
-    ) {
-      scrollIntoView(itemRefs.current[selectedIndex], {
-        block: "center",
-        behavior: "smooth",
-        scrollMode: "if-needed",
-      });
+    if (searchDetail === undefined && prevSearchDetailRef.current) {
+      setPrevSearchDetail(prevSearchDetailRef.current);
     }
-    // we only want to scroll when the index changes
+    prevSearchDetailRef.current = searchDetail;
+  }, [searchDetail]);
+
+  useEffect(() => {
+    if (uniqueResults && itemRefs.current && prevSearchDetail) {
+      const selectedIndex = uniqueResults.findIndex(
+        (result) => result.id === prevSearchDetail.id,
+      );
+
+      const parent = itemRefs.current[selectedIndex];
+
+      if (selectedIndex !== -1 && parent) {
+        const target = parent.querySelector(".review-item-ring");
+        if (target) {
+          scrollIntoView(target, {
+            block: "center",
+            behavior: "smooth",
+            scrollMode: "if-needed",
+          });
+          target.classList.add(`outline-selected`);
+          target.classList.remove("outline-transparent");
+
+          setTimeout(() => {
+            target.classList.remove(`outline-selected`);
+            target.classList.add("outline-transparent");
+          }, 3000);
+        }
+      }
+    }
+    // we only want to scroll when the dialog closes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIndex]);
+  }, [prevSearchDetail]);
+
+  useEffect(() => {
+    if (uniqueResults && itemRefs.current && searchDetail) {
+      const selectedIndex = uniqueResults.findIndex(
+        (result) => result.id === searchDetail.id,
+      );
+
+      const parent = itemRefs.current[selectedIndex];
+
+      if (selectedIndex !== -1 && parent) {
+        scrollIntoView(parent, {
+          block: "center",
+          behavior: "smooth",
+          scrollMode: "if-needed",
+        });
+      }
+    }
+    // we only want to scroll when changing the detail pane
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDetail]);
 
   // observer for loading more
 
@@ -341,6 +459,7 @@ export default function SearchView({
         setSimilarity={
           searchDetail && (() => setSimilaritySearch(searchDetail))
         }
+        setInputFocused={setInputFocused}
       />
 
       <div
@@ -369,22 +488,39 @@ export default function SearchView({
         {hasExistingSearch && (
           <ScrollArea className="w-full whitespace-nowrap lg:ml-[35%]">
             <div className="flex flex-row gap-2">
-              <SearchFilterGroup
-                className={cn(
-                  "w-full justify-between md:justify-start lg:justify-end",
-                )}
-                filter={searchFilter}
-                onUpdateFilter={onUpdateFilter}
-              />
-              <SearchSettings
-                columns={columns}
-                setColumns={setColumns}
-                defaultView={defaultView}
-                setDefaultView={setDefaultView}
-                filter={searchFilter}
-                onUpdateFilter={onUpdateFilter}
-              />
-              <ScrollBar orientation="horizontal" className="h-0" />
+              {selectedObjects.length == 0 ? (
+                <>
+                  <SearchFilterGroup
+                    className={cn(
+                      "w-full justify-between md:justify-start lg:justify-end",
+                    )}
+                    filter={searchFilter}
+                    onUpdateFilter={onUpdateFilter}
+                  />
+                  <ExploreSettings
+                    columns={columns}
+                    setColumns={setColumns}
+                    defaultView={defaultView}
+                    setDefaultView={setDefaultView}
+                    filter={searchFilter}
+                    onUpdateFilter={onUpdateFilter}
+                  />
+                  <ScrollBar orientation="horizontal" className="h-0" />
+                </>
+              ) : (
+                <div
+                  className={cn(
+                    "scrollbar-container flex justify-center gap-2 overflow-x-auto",
+                    "h-10 w-full justify-between md:justify-start lg:justify-end",
+                  )}
+                >
+                  <SearchActionGroup
+                    selectedObjects={selectedObjects}
+                    setSelectedObjects={setSelectedObjects}
+                    pullLatestData={refresh}
+                  />
+                </div>
+              )}
             </div>
           </ScrollArea>
         )}
@@ -397,7 +533,7 @@ export default function SearchView({
         {uniqueResults?.length == 0 && !isLoading && (
           <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center text-center">
             <LuSearchX className="size-16" />
-            No Tracked Objects Found
+            {t("noTrackedObjects")}
           </div>
         )}
 
@@ -412,14 +548,14 @@ export default function SearchView({
           <div className={gridClassName}>
             {uniqueResults &&
               uniqueResults.map((value, index) => {
-                const selected = selectedIndex === index;
+                const selected = selectedObjects.includes(value.id);
 
                 return (
                   <div
                     key={value.id}
                     ref={(item) => (itemRefs.current[index] = item)}
                     data-start={value.start_time}
-                    className="review-item relative flex flex-col rounded-lg"
+                    className="relative flex flex-col rounded-lg"
                   >
                     <div
                       className={cn(
@@ -428,7 +564,20 @@ export default function SearchView({
                     >
                       <SearchThumbnail
                         searchResult={value}
-                        onClick={() => onSelectSearch(value, index)}
+                        onClick={(
+                          value: SearchResult,
+                          ctrl: boolean,
+                          detail: boolean,
+                        ) => {
+                          if (detail && selectedObjects.length == 0) {
+                            setSearchDetail(value);
+                          } else {
+                            onSelectSearch(
+                              value,
+                              ctrl || selectedObjects.length > 0,
+                            );
+                          }
+                        }}
                       />
                       {(searchTerm ||
                         searchFilter?.search_type?.includes("similarity")) && (
@@ -469,10 +618,10 @@ export default function SearchView({
                         }}
                         refreshResults={refresh}
                         showObjectLifecycle={() =>
-                          onSelectSearch(value, index, "object lifecycle")
+                          onSelectSearch(value, false, "object_lifecycle")
                         }
                         showSnapshot={() =>
-                          onSelectSearch(value, index, "snapshot")
+                          onSelectSearch(value, false, "snapshot")
                         }
                       />
                     </div>

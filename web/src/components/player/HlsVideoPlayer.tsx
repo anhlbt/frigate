@@ -18,6 +18,7 @@ import { useOverlayState } from "@/hooks/use-overlay-state";
 import { usePersistence } from "@/hooks/use-persistence";
 import { cn } from "@/lib/utils";
 import { ASPECT_VERTICAL_LAYOUT, RecordingPlayerError } from "@/types/record";
+import { useTranslation } from "react-i18next";
 
 // Android native hls does not seek correctly
 const USE_NATIVE_HLS = !isAndroid;
@@ -63,6 +64,7 @@ export default function HlsVideoPlayer({
   toggleFullscreen,
   onError,
 }: HlsVideoPlayerProps) {
+  const { t } = useTranslation("components/player");
   const { data: config } = useSWR<FrigateConfig>("config");
 
   // playback
@@ -144,7 +146,7 @@ export default function HlsVideoPlayer({
 
   const [tallCamera, setTallCamera] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
-  const [muted, setMuted] = useOverlayState("playerMuted", true);
+  const [muted, setMuted] = usePersistence("hlsPlayerMuted", true);
   const [volume, setVolume] = useOverlayState("playerVolume", 1.0);
   const [defaultPlaybackRate] = usePersistence("playbackRate", 1);
   const [playbackRate, setPlaybackRate] = useOverlayState(
@@ -211,7 +213,7 @@ export default function HlsVideoPlayer({
             fullscreen: supportsFullscreen,
           }}
           setControlsOpen={setControlsOpen}
-          setMuted={(muted) => setMuted(muted, true)}
+          setMuted={(muted) => setMuted(muted)}
           playbackRate={playbackRate ?? 1}
           hotKeys={hotKeys}
           onPlayPause={onPlayPause}
@@ -236,11 +238,11 @@ export default function HlsVideoPlayer({
               const resp = await onUploadFrame(videoRef.current.currentTime);
 
               if (resp && resp.status == 200) {
-                toast.success("Successfully submitted frame to Frigate+", {
+                toast.success(t("toast.success.submittedFrigatePlus"), {
                   position: "top-center",
                 });
               } else {
-                toast.success("Failed to submit frame to Frigate+", {
+                toast.success(t("toast.error.submitFrigatePlusFailed"), {
                   position: "top-center",
                 });
               }
@@ -280,9 +282,12 @@ export default function HlsVideoPlayer({
                 }
               : undefined
           }
-          onVolumeChange={() =>
-            setVolume(videoRef.current?.volume ?? 1.0, true)
-          }
+          onVolumeChange={() => {
+            setVolume(videoRef.current?.volume ?? 1.0, true);
+            if (!frigateControls) {
+              setMuted(videoRef.current?.muted);
+            }
+          }}
           onPlay={() => {
             setIsPlaying(true);
 

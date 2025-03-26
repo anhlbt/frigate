@@ -17,15 +17,15 @@ From here, follow the guides for:
 - [Web Interface](#web-interface)
 - [Documentation](#documentation)
 
-### Frigate Home Assistant Addon
+### Frigate Home Assistant Add-on
 
-This repository holds the Home Assistant Addon, for use with Home Assistant OS and compatible installations. It is the piece that allows you to run Frigate from your Home Assistant Supervisor tab.
+This repository holds the Home Assistant Add-on, for use with Home Assistant OS and compatible installations. It is the piece that allows you to run Frigate from your Home Assistant Supervisor tab.
 
 Fork [blakeblackshear/frigate-hass-addons](https://github.com/blakeblackshear/frigate-hass-addons) to your own Github profile, then clone the forked repo to your local machine.
 
 ### Frigate Home Assistant Integration
 
-This repository holds the custom integration that allows your Home Assistant installation to automatically create entities for your Frigate instance, whether you run that with the [addon](#frigate-home-assistant-addon) or in a separate Docker instance.
+This repository holds the custom integration that allows your Home Assistant installation to automatically create entities for your Frigate instance, whether you are running Frigate as a standalone Docker container or as a [Home Assistant Add-on](#frigate-home-assistant-add-on).
 
 Fork [blakeblackshear/frigate-hass-integration](https://github.com/blakeblackshear/frigate-hass-integration) to your own GitHub profile, then clone the forked repo to your local machine.
 
@@ -34,7 +34,7 @@ Fork [blakeblackshear/frigate-hass-integration](https://github.com/blakeblackshe
 ### Prerequisites
 
 - GNU make
-- Docker
+- Docker (including buildx plugin)
 - An extra detector (Coral, OpenVINO, etc.) is optional but recommended to simulate real world performance.
 
 :::note
@@ -77,14 +77,15 @@ Create and place these files in a `debug` folder in the root of the repo. This i
 
 #### 4. Run Frigate from the command line
 
-VSCode will start the docker compose file for you and open a terminal window connected to `frigate-dev`.
+VS Code will start the Docker Compose file for you and open a terminal window connected to `frigate-dev`.
 
+- Depending on what hardware you're developing on, you may need to amend `docker-compose.yml` in the project root to pass through a USB Coral or GPU for hardware acceleration.
 - Run `python3 -m frigate` to start the backend.
 - In a separate terminal window inside VS Code, change into the `web` directory and run `npm install && npm run dev` to start the frontend.
 
 #### 5. Teardown
 
-After closing VSCode, you may still have containers running. To close everything down, just run `docker-compose down -v` to cleanup all containers.
+After closing VS Code, you may still have containers running. To close everything down, just run `docker-compose down -v` to cleanup all containers.
 
 ### Testing
 
@@ -235,3 +236,14 @@ When testing nginx config changes from within the dev container, the following c
 ```console
 sudo cp docker/main/rootfs/usr/local/nginx/conf/* /usr/local/nginx/conf/ && sudo /usr/local/nginx/sbin/nginx -s reload
 ```
+
+## Contributing translations of the Web UI
+
+If you'd like to contribute translations to Frigate, please follow these steps:
+
+1. Fork the repository and create a new branch specifically for your translation work
+2. Locate the localization files in the web/public/locales directory
+3. Add or modify the appropriate language JSON files, maintaining the existing key structure while translating only the values
+4. Ensure your translations maintain proper formatting, including any placeholder variables (like `{{example}}`)
+5. Before submitting, thoroughly review the UI
+6. When creating your PR, include a brief description of the languages you've added or updated, and reference any related issues

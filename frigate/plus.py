@@ -45,7 +45,7 @@ class PlusApi:
             self.key = (
                 Path(os.path.join("/run/secrets", PLUS_ENV_VAR)).read_text().strip()
             )
-        # check for the addon options file
+        # check for the add-on options file
         elif os.path.isfile("/data/options.json"):
             with open("/data/options.json") as f:
                 raw_options = f.read()
@@ -68,11 +68,13 @@ class PlusApi:
             or self._token_data["expires"] - datetime.datetime.now().timestamp() < 60
         ):
             if self.key is None:
-                raise Exception("Plus API not activated")
+                raise Exception(
+                    "Plus API key not set. See https://docs.frigate.video/integrations/plus#set-your-api-key"
+                )
             parts = self.key.split(":")
             r = requests.get(f"{self.host}/v1/auth/token", auth=(parts[0], parts[1]))
             if not r.ok:
-                raise Exception("Unable to refresh API token")
+                raise Exception(f"Unable to refresh API token: {r.text}")
             self._token_data = r.json()
 
     def _get_authorization_header(self) -> dict:
@@ -114,15 +116,6 @@ class PlusApi:
         r = requests.post(presigned_urls["original"]["url"], files=files, data=data)
         if not r.ok:
             logger.error(f"Failed to upload original: {r.status_code} {r.text}")
-            raise Exception(r.text)
-
-        # resize and submit annotate
-        files = {"file": get_jpg_bytes(image, 640, 70)}
-        data = presigned_urls["annotate"]["fields"]
-        data["content-type"] = "image/jpeg"
-        r = requests.post(presigned_urls["annotate"]["url"], files=files, data=data)
-        if not r.ok:
-            logger.error(f"Failed to upload annotate: {r.status_code} {r.text}")
             raise Exception(r.text)
 
         # resize and submit thumbnail
@@ -236,6 +229,14 @@ class PlusApi:
 
     def get_model_info(self, model_id: str) -> Any:
         r = self._get(f"model/{model_id}")
+
+        if not r.ok:
+            raise Exception(r.text)
+
+        return r.json()
+
+    def get_models(self) -> Any:
+        r = self._get("model/list")
 
         if not r.ok:
             raise Exception(r.text)
