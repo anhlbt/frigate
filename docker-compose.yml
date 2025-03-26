@@ -8,11 +8,12 @@ services:
       - "44"  # video
       - "46"  # plugdev
     shm_size: "256mb"
+    image: frigate:dev
     build:
       context: .
       dockerfile: docker/main/Dockerfile
       # Use target devcontainer-trt for TensorRT dev
-      target: devcontainer
+      target: devcontainer-trt
     ## Uncomment this block for nvidia gpu support
     # deploy:
     #       resources:
