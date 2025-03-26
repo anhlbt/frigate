@@ -42,7 +42,6 @@ apt-get -qq install --no-install-recommends --no-install-suggests -y \
 # btbn-ffmpeg -> amd64
 if [[ "${TARGETARCH}" == "amd64" ]]; then
     mkdir -p /usr/lib/ffmpeg/5.0
-    mkdir -p /usr/lib/ffmpeg/6.0
     mkdir -p /usr/lib/ffmpeg/7.0
     wget -qO btbn-ffmpeg.tar.xz "https://github.com/NickM-27/FFmpeg-Builds/releases/download/autobuild-2022-07-31-12-37/ffmpeg-n5.1-2-g915ef932a3-linux64-gpl-5.1.tar.xz"
     tar -xf btbn-ffmpeg.tar.xz -C /usr/lib/ffmpeg/5.0 --strip-components 1
@@ -52,11 +51,8 @@ if [[ "${TARGETARCH}" == "amd64" ]]; then
     tar -xf btbn-ffmpeg.tar.xz -C /usr/lib/ffmpeg/7.0 --strip-components 1
     rm -rf btbn-ffmpeg.tar.xz /usr/lib/ffmpeg/7.0/doc /usr/lib/ffmpeg/7.0/bin/ffplay
     
-    wget -qO btbn-ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-11-05-13-03/ffmpeg-n6.1.2-11-g7d79d0a43b-linux64-lgpl-6.1.tar.xz"
-    tar -xf btbn-ffmpeg.tar.xz -C /usr/lib/ffmpeg/6.0 --strip-components 1
-    rm -rf btbn-ffmpeg.tar.xz /usr/lib/ffmpeg/6.0/doc /usr/lib/ffmpeg/6.0/bin/ffplay
 
-    export PATH=$PATH:/usr/lib/ffmpeg/7.0/bin:/usr/lib/ffmpeg/6.0/bin:/usr/lib/ffmpeg/5.0/bin
+    export PATH=$PATH:/usr/lib/ffmpeg/7.0/bin:/usr/lib/ffmpeg/5.0/bin
 fi
 
 # ffmpeg -> arm64
