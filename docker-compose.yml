@@ -73,9 +73,9 @@ services:
     image: frigate:latest-tensorrt #ghcr.io/blakeblackshear/frigate:0.14.1-tensorrt #frigate:latest-tensorrt
     build:
       context: .
-      dockerfile: docker/main/Dockerfile    #docker/tensorrt/Dockerfile.amd64   # docker/main/Dockerfile
+      dockerfile: docker/tensorrt/Dockerfile.amd64   # docker/main/Dockerfile
       # Use target devcontainer-trt for TensorRT dev
-      target: devcontainer # to  build base image, need to uncommend this line
+      # target: devcontainer # to  build base image, need to uncommend this line
       # target: devcontainer-trt 
     ## Uncomment this block for nvidia gpu support
     deploy:
@@ -90,7 +90,7 @@ services:
     devices:
     - /dev/video0:/dev/video0
     - /dev/video1:/dev/video1
-    - /dev/video2:/dev/video2  # webcam
+    # - /dev/video2:/dev/video2  # webcam
     - /dev/dri:/dev/dri
     - /dev/dma_heap
     - /dev/bus/usb:/dev/bus/usb # Passes the USB Coral, needs to be modified for other versions
