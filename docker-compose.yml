@@ -1,29 +1,29 @@
 services:
   devcontainer:
-    container_name: frigate-devcontainer
+    container_name: frigate-dev
     # add groups from host for render, plugdev, video
     group_add:
       - "109" # render
       - "110" # render
       - "44"  # video
       - "46"  # plugdev
-    shm_size: "256mb"
-    image: frigate:dev
+    shm_size: "512mb"
+    image: frigate:latest-tensorrt
     build:
       context: .
-      dockerfile: docker/main/Dockerfile
-      # Use target devcontainer-trt for TensorRT dev
-      target: devcontainer-trt
+      dockerfile: docker/tensorrt/Dockerfile.amd64 #docker/main/Dockerfile
+      # Use target devcontainer-trt for TensorRT dev  - run make local-trt first
+      target: devcontainer
     ## Uncomment this block for nvidia gpu support
-    # deploy:
-    #       resources:
-    #           reservations:
-    #               devices:
-    #                   - driver: nvidia
-    #                     count: 1
-    #                     capabilities: [gpu]
+    deploy:
+          resources:
+              reservations:
+                  devices:
+                      - driver: nvidia
+                        count: 1
+                        capabilities: [gpu]
     environment:
-      YOLO_MODELS: ""
+      YOLO_MODELS: yolov7-320
     # devices:
       # - /dev/bus/usb:/dev/bus/usb # Uncomment for Google Coral USB
       # - /dev/dri:/dev/dri # for intel hwaccel, needs to be updated for your hardware
@@ -33,9 +33,114 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./config:/config
       - ./debug:/media/frigate
-     # - /dev/bus/usb:/dev/bus/usb # Uncomment for Google Coral USB
+      - /dev/bus/usb:/dev/bus/usb # Uncomment for Google Coral USB
+      - /etc/timezone:/etc/timezone:ro      
+      - /dev/bus/usb:/dev/bus/usb
+      - ./models:/models
+      - ./storage:/media/frigate
+      - ./frigate:/opt/frigate/frigate
+      - ./videos:/videos
+      - type: tmpfs # Optional: 1GB of memory, reduces SSD/SD Card wear
+        target: /tmp/cache
+        tmpfs:
+          size: 1000000000      
+    devices:
+    - /dev/video0:/dev/video0
+    - /dev/video1:/dev/video1
+    # - /dev/video2:/dev/video2  # webcam
+    - /dev/dri:/dev/dri
+    - /dev/dma_heap
+    - /dev/bus/usb:/dev/bus/usb # Passes the USB Coral, needs to be modified for other versions
+    # - /dev/apex_0:/dev/apex_0 # Passes a PCIe Coral, follow driver instructions here https://coral.ai/docs/m2/get-started/#2a-on-linux
+    # - /dev/video11:/dev/video11 # For Raspberry Pi 4B
+    # - /dev/dri/renderD128:/dev/dri/renderD128 # For intel hwaccel, needs to be updated for your hardware    
+    # - /dev/rga
+    # - /dev/mpp_service      
+      # - /dev/dri:/dev/dri # for intel hwaccel, needs to be updated for your hardware
   mqtt:
     container_name: mqtt
     image: eclipse-mosquitto:1.6
     ports:
       - "1883:1883"
+
+  # devcontainer-main:
+  #   hostname: frigate # don't change
+  #   container_name: frigate
+  #   # add groups from host for render, plugdev, video
+  #   group_add:
+  #     - "109" # render
+  #     - "110" # render
+  #     - "44"  # video
+  #     - "46"  # plugdev
+  #   shm_size: "1024mb"
+  #   image: frigate:latest-tensorrt #ghcr.io/blakeblackshear/frigate:0.14.1-tensorrt #frigate:latest-tensorrt
+  #   build:
+  #     context: .
+  #     dockerfile: docker/main/Dockerfile    #docker/tensorrt/Dockerfile.amd64   # docker/main/Dockerfile
+  #     # Use target devcontainer-trt for TensorRT dev
+  #     target: devcontainer # to  build base image, need to uncommend this line
+  #     # target: devcontainer-trt 
+  #   ## Uncomment this block for nvidia gpu support
+  #   deploy:
+  #         resources:
+  #             reservations:
+  #                 devices:
+  #                     - driver: nvidia
+  #                       count: 1
+  #                       capabilities: [gpu]
+  #   # environment:
+  #   #   YOLO_MODELS: yolov7-320
+  #   devices:
+  #   - /dev/video0:/dev/video0
+  #   - /dev/video1:/dev/video1
+  #   - /dev/video2:/dev/video2  # webcam
+  #   - /dev/dri:/dev/dri
+  #   - /dev/dma_heap
+  #   - /dev/bus/usb:/dev/bus/usb # Passes the USB Coral, needs to be modified for other versions
+  #   # - /dev/apex_0:/dev/apex_0 # Passes a PCIe Coral, follow driver instructions here https://coral.ai/docs/m2/get-started/#2a-on-linux
+  #   # - /dev/video11:/dev/video11 # For Raspberry Pi 4B
+  #   # - /dev/dri/renderD128:/dev/dri/renderD128 # For intel hwaccel, needs to be updated for your hardware    
+  #   # - /dev/rga
+  #   # - /dev/mpp_service      
+  #     # - /dev/dri:/dev/dri # for intel hwaccel, needs to be updated for your hardware
+  #   environment:
+  #     - FRIGATE_RTSP_PASSWORD=admin
+  #     - TZ=Asia/Ho_Chi_Minh
+  #     # - PATH=/usr/lib/ffmpeg/7.0/bin:/usr/lib/ffmpeg/6.0/bin:/usr/lib/ffmpeg/5.0/bin:/usr/local/bin:/usr/local/sbin:/usr/local/go2rtc:/usr/local/nginx/sbin:/usr/local/tempio/bin:${PATH}
+  #   dns:
+  #   # ip route | awk '/default/ { print $3 }'
+  #   # sudo nano /etc/docker/daemon.json
+  #   # sudo systemctl restart docker
+  #     - 172.21.88.1 # Địa chỉ DNS của host hoặc gateway: ip route | awk '/default/ { print $3 }'
+  #     - 8.8.8.8
+  #     - 8.8.4.4
+  #     - 127.0.0.53
+  #     - 127.0.0.11    
+  #   volumes:
+  #     # - .:/workspace/frigate:cached
+  #     # - ./web/dist:/opt/frigate/web:cached
+  #     - /etc/timezone:/etc/timezone:ro      
+  #     - /etc/localtime:/etc/localtime:ro
+  #     - ./config:/config
+  #     - /dev/bus/usb:/dev/bus/usb
+  #     - ./models:/models
+  #     - ./storage:/media/frigate
+  #     - ./frigate:/opt/frigate/frigate
+  #     - ./videos:/videos
+
+  #     - type: tmpfs # Optional: 1GB of memory, reduces SSD/SD Card wear
+  #       target: /tmp/cache
+  #       tmpfs:
+  #         size: 1000000000
+  #   ports:
+  #     - "8971:8971"
+  #     - "5000:5000" # Internal unauthenticated access. Expose carefully.
+  #     - "8556:8554" # RTSP feeds
+  #     - "8555:8555/tcp" # M
+  #     - "8555:8555/udp"
+  #     - "5555:5555" # M      
+  #     - "5001:5001" 
+
+  #   # networks:
+  #   #   - frigate
+  #   network_mode: "host"        
