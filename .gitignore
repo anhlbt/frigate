@@ -19,10 +19,10 @@ core
 !/web/**/*.ts
 .idea/*
 .ipynb_checkpoints
-machine-learning/
 mosquitto/
 frigate.code-workspace
 storage/
 mosquitto/
 videos/
 gitlog
+machine-learning/test/*.pt
