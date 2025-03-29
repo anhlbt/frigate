@@ -22,16 +22,17 @@ Frigate needs to first detect a `face` before it can recognize a face.
 ### Face Recognition
 
 Frigate has support for two face recognition model types:
-- **small**: Frigate will use CV2 Local Binary Pattern Face Recognizer to recognize faces, which runs locally on the CPU.
-- **large**: Frigate will run a face embedding model, this is only recommended to be run when an integrated or dedicated GPU is available.
 
-In both cases a lightweight face landmark detection model is also used to align faces before running them through the face recognizer.
+- **small**: Frigate will run a FaceNet embedding model to recognize faces, which runs locally on the CPU. This model is optimized for efficiency and is not as accurate.
+- **large**: Frigate will run a large ArcFace embedding model that is optimized for accuracy. It is only recommended to be run when an integrated or dedicated GPU is available.
+
+In both cases a lightweight face landmark detection model is also used to align faces before running the recognition model.
 
 ## Minimum System Requirements
 
-Face recognition is lightweight and runs on the CPU, there are no significantly different system requirements than running Frigate itself when using the `small` model.
+The `small` model is optimized for efficiency and runs on the CPU, most CPUs should run the model efficiently.
 
-When using the `large` model an integrated or discrete GPU is recommended.
+The `large` model is optimized for accuracy, an integrated or discrete GPU is highly recommended.
 
 ## Configuration
 
@@ -58,12 +59,14 @@ Fine-tune face recognition with these optional parameters:
 ### Recognition
 
 - `model_size`: Which model size to use, options are `small` or `large`
+- `unknown_score`: Min score to mark a person as a potential match, matches at or below this will be marked as unknown.
+  - Default: `0.8`.
 - `recognition_threshold`: Recognition confidence score required to add the face to the object as a sub label.
   - Default: `0.9`.
 - `blur_confidence_filter`: Enables a filter that calculates how blurry the face is and adjusts the confidence based on this.
   - Default: `True`.
 
-## Dataset
+## Creating a Robust Training Set
 
 The number of images needed for a sufficient training set for face recognition varies depending on several factors:
 
@@ -72,11 +75,9 @@ The number of images needed for a sufficient training set for face recognition v
 
 However, here are some general guidelines:
 
-- Minimum: For basic face recognition tasks, a minimum of 10-20 images per person is often recommended.
-- Recommended: For more robust and accurate systems, 30-50 images per person is a good starting point.
-- Ideal: For optimal performance, especially in challenging conditions, 100 or more images per person can be beneficial.
-
-## Creating a Robust Training Set
+- Minimum: For basic face recognition tasks, a minimum of 5-10 images per person is often recommended.
+- Recommended: For more robust and accurate systems, 20-30 images per person is a good starting point.
+- Ideal: For optimal performance, especially in challenging conditions, 50-100 images per person can be beneficial.
 
 The accuracy of face recognition is heavily dependent on the quality of data given to it for training. It is recommended to build the face training library in phases.
 
@@ -87,7 +88,8 @@ When choosing images to include in the face training set it is recommended to al
 - If it is difficult to make out details in a persons face it will not be helpful in training.
 - Avoid images with extreme under/over-exposure.
 - Avoid blurry / pixelated images.
-- Be careful when uploading images of people when they are wearing clothing that covers a lot of their face as this may confuse the model.
+- Avoid training on infrared (grayscale). The models are trained on color images and will be able to extract features from grayscale images.
+- Using images of people wearing hats / sunglasses may confuse the model.
 - Do not upload too many similar images at the same time, it is recommended to train no more than 4-6 similar images for each person to avoid overfitting.
 
 :::
@@ -108,17 +110,18 @@ Once straight-on images are performing well, start choosing slightly off-angle i
 
 ## FAQ
 
-### Why is every face tagged as a known face and not unknown?
+### Why can't I bulk upload photos?
 
-Any recognized face with a score >= `min_score` will show in the `Train` tab along with the recognition score. A low scoring face is effectively the same as `unknown`, but includes more information. This does not mean the recognition is not working well, and is part of the importance of choosing the correct `recognition_threshold`.
+It is important to methodically add photos to the library, bulk importing photos (especially from a general photo library) will lead to overfitting in that particular scenario and hurt recognition performance.
 
 ### Why do unknown people score similarly to known people?
 
 This can happen for a few different reasons, but this is usually an indicator that the training set needs to be improved. This is often related to overfitting:
+
 - If you train with only a few images per person, especially if those images are very similar, the recognition model becomes overly specialized to those specific images.
 - When you provide images with different poses, lighting, and expressions, the algorithm extracts features that are consistent across those variations.
 - By training on a diverse set of images, the algorithm becomes less sensitive to minor variations and noise in the input image.
 
 ### I see scores above the threshold in the train tab, but a sub label wasn't assigned?
 
-The Frigate face recognizer collects face recognition scores from all of the frames across the person objects lifecycle. The scores are continually weighted based on the area of the face, and a sub label will only be assigned to person if there is a prominent person recognized. This avoids cases where a single high confidence recognition result would throw off the results.
+The Frigate considers the recognition scores across all recogntion attempts for each person object. The scores are continually weighted based on the area of the face, and a sub label will only be assigned to person if a person is confidently recognized consistently. This avoids cases where a single high confidence recognition would throw off the results.

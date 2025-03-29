@@ -41,13 +41,9 @@ def get_faces():
 
         face_dict[name] = []
 
-        for file in sorted(
-            filter(
-                lambda f: (f.lower().endswith((".webp", ".png", ".jpg", ".jpeg"))),
-                os.listdir(face_dir),
-            ),
-            key=lambda f: os.path.getctime(os.path.join(face_dir, f)),
-            reverse=True,
+        for file in filter(
+            lambda f: (f.lower().endswith((".webp", ".png", ".jpg", ".jpeg"))),
+            os.listdir(face_dir),
         ):
             face_dict[name].append(file)
 
@@ -125,10 +121,13 @@ def train_face(request: Request, name: str, body: dict = None):
     sanitized_name = sanitize_filename(name)
     rand_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
     new_name = f"{sanitized_name}-{rand_id}.webp"
-    new_file = os.path.join(FACE_DIR, f"{sanitized_name}/{new_name}")
+    new_file_folder = os.path.join(FACE_DIR, f"{sanitized_name}")
+
+    if not os.path.exists(new_file_folder):
+        os.mkdir(new_file_folder)
 
     if training_file_name:
-        shutil.move(training_file, new_file)
+        shutil.move(training_file, os.path.join(new_file_folder, new_name))
     else:
         try:
             event: Event = Event.get(Event.id == event_id)
@@ -155,7 +154,7 @@ def train_face(request: Request, name: str, body: dict = None):
         x2 = x1 + int(face_box[2] * detect_config.width) - 4
         y2 = y1 + int(face_box[3] * detect_config.height) - 4
         face = snapshot[y1:y2, x1:x2]
-        cv2.imwrite(new_file, face)
+        cv2.imwrite(os.path.join(new_file_folder, new_name), face)
 
     context: EmbeddingsContext = request.app.embeddings
     context.clear_face_classifier()
@@ -198,6 +197,16 @@ async def register_face(request: Request, name: str, file: UploadFile):
 
     context: EmbeddingsContext = request.app.embeddings
     result = context.register_face(name, await file.read())
+
+    if not isinstance(result, dict):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "Could not process request. Try restarting Frigate.",
+            },
+        )
+
     return JSONResponse(
         status_code=200 if result.get("success", True) else 400,
         content=result,
@@ -214,6 +223,16 @@ async def recognize_face(request: Request, file: UploadFile):
 
     context: EmbeddingsContext = request.app.embeddings
     result = context.recognize_face(await file.read())
+
+    if not isinstance(result, dict):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "message": "Could not process request. Try restarting Frigate.",
+            },
+        )
+
     return JSONResponse(
         status_code=200 if result.get("success", True) else 400,
         content=result,
@@ -278,3 +297,49 @@ def reprocess_license_plate(request: Request, event_id: str):
         content=response,
         status_code=200,
     )
+
+
+@router.put("/reindex", dependencies=[Depends(require_role(["admin"]))])
+def reindex_embeddings(request: Request):
+    if not request.app.frigate_config.semantic_search.enabled:
+        message = (
+            "Cannot reindex tracked object embeddings, Semantic Search is not enabled."
+        )
+        logger.error(message)
+        return JSONResponse(
+            content=(
+                {
+                    "success": False,
+                    "message": message,
+                }
+            ),
+            status_code=400,
+        )
+
+    context: EmbeddingsContext = request.app.embeddings
+    response = context.reindex_embeddings()
+
+    if response == "started":
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "Embeddings reindexing has started.",
+            },
+            status_code=202,  # 202 Accepted
+        )
+    elif response == "in_progress":
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": "Embeddings reindexing is already in progress.",
+            },
+            status_code=409,  # 409 Conflict
+        )
+    else:
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": "Failed to start reindexing.",
+            },
+            status_code=500,
+        )

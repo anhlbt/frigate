@@ -1,5 +1,7 @@
 import logging
 import os
+import queue
+import threading
 from abc import ABC, abstractmethod
 
 import cv2
@@ -8,7 +10,7 @@ from scipy import stats
 
 from frigate.config import FrigateConfig
 from frigate.const import MODEL_CACHE_DIR
-from frigate.embeddings.onnx.facenet import ArcfaceEmbedding
+from frigate.embeddings.onnx.face_embedding import ArcfaceEmbedding, FaceNetEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +20,8 @@ class FaceRecognizer(ABC):
 
     def __init__(self, config: FrigateConfig) -> None:
         self.config = config
-        self.landmark_detector = cv2.face.createFacemarkLBF()
-        self.landmark_detector.loadModel(
-            os.path.join(MODEL_CACHE_DIR, "facedet/landmarkdet.yaml")
-        )
+        self.landmark_detector: cv2.face.FacemarkLBF = None
+        self.init_landmark_detector()
 
     @abstractmethod
     def build(self) -> None:
@@ -36,6 +36,13 @@ class FaceRecognizer(ABC):
     @abstractmethod
     def classify(self, face_image: np.ndarray) -> tuple[str, float] | None:
         pass
+
+    def init_landmark_detector(self) -> None:
+        landmark_model = os.path.join(MODEL_CACHE_DIR, "facedet/landmarkdet.yaml")
+
+        if os.path.exists(landmark_model):
+            self.landmark_detector = cv2.face.createFacemarkLBF()
+            self.landmark_detector.loadModel(landmark_model)
 
     def align_face(
         self,
@@ -118,154 +125,101 @@ class FaceRecognizer(ABC):
             return 1.0
 
 
-class LBPHRecognizer(FaceRecognizer):
-    def __init__(self, config: FrigateConfig):
-        super().__init__(config)
-        self.label_map: dict[int, str] = {}
-        self.recognizer: cv2.face.LBPHFaceRecognizer | None = None
+def similarity_to_confidence(
+    cosine_similarity: float, median=0.3, range_width=0.6, slope_factor=12
+):
+    """
+    Default sigmoid function to map cosine similarity to confidence.
 
-    def clear(self) -> None:
-        self.face_recognizer = None
-        self.label_map = {}
+    Args:
+        cosine_similarity (float): The input cosine similarity.
+        median (float): Assumed median of cosine similarity distribution.
+        range_width (float): Assumed range of cosine similarity distribution (90th percentile - 10th percentile).
+        slope_factor (float): Adjusts the steepness of the curve.
 
-    def build(self):
-        if not self.landmark_detector:
-            return None
+    Returns:
+        float: The confidence score.
+    """
 
-        labels = []
-        faces = []
-        idx = 0
+    # Calculate slope and bias
+    slope = slope_factor / range_width
+    bias = median
 
-        dir = "/media/frigate/clips/faces"
-        for name in os.listdir(dir):
-            if name == "train":
-                continue
-
-            face_folder = os.path.join(dir, name)
-
-            if not os.path.isdir(face_folder):
-                continue
-
-            self.label_map[idx] = name
-            for image in os.listdir(face_folder):
-                img = cv2.imread(os.path.join(face_folder, image))
-
-                if img is None:
-                    continue
-
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                img = self.align_face(img, img.shape[1], img.shape[0])
-                faces.append(img)
-                labels.append(idx)
-
-            idx += 1
-
-        if not faces:
-            return
-
-        self.recognizer: cv2.face.LBPHFaceRecognizer = (
-            cv2.face.LBPHFaceRecognizer_create(
-                radius=2, threshold=(1 - self.config.face_recognition.min_score) * 1000
-            )
-        )
-        self.recognizer.train(faces, np.array(labels))
-
-    def classify(self, face_image: np.ndarray) -> tuple[str, float] | None:
-        if not self.landmark_detector:
-            return None
-
-        if not self.label_map or not self.recognizer:
-            self.build()
-
-            if not self.recognizer:
-                return None
-
-        # face recognition is best run on grayscale images
-        img = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
-
-        # get blur factor before aligning face
-        blur_factor = self.get_blur_factor(img)
-        logger.debug(f"face detected with bluriness {blur_factor}")
-
-        # align face and run recognition
-        img = self.align_face(img, img.shape[1], img.shape[0])
-        index, distance = self.recognizer.predict(img)
-
-        if index == -1:
-            return None
-
-        score = (1.0 - (distance / 1000)) * blur_factor
-        return self.label_map[index], round(score, 2)
+    # Calculate confidence
+    confidence = 1 / (1 + np.exp(-slope * (cosine_similarity - bias)))
+    return confidence
 
 
-class ArcFaceRecognizer(FaceRecognizer):
+class FaceNetRecognizer(FaceRecognizer):
     def __init__(self, config: FrigateConfig):
         super().__init__(config)
         self.mean_embs: dict[int, np.ndarray] = {}
-        self.face_embedder: ArcfaceEmbedding = ArcfaceEmbedding()
+        self.face_embedder: FaceNetEmbedding = FaceNetEmbedding()
+        self.model_builder_queue: queue.Queue | None = None
 
     def clear(self) -> None:
         self.mean_embs = {}
 
-    def build(self):
-        if not self.landmark_detector:
-            return None
+    def run_build_task(self) -> None:
+        self.model_builder_queue = queue.Queue()
 
-        face_embeddings_map: dict[str, list[np.ndarray]] = {}
-        idx = 0
+        def build_model():
+            face_embeddings_map: dict[str, list[np.ndarray]] = {}
+            idx = 0
 
-        dir = "/media/frigate/clips/faces"
-        for name in os.listdir(dir):
-            if name == "train":
-                continue
-
-            face_folder = os.path.join(dir, name)
-
-            if not os.path.isdir(face_folder):
-                continue
-
-            face_embeddings_map[name] = []
-            for image in os.listdir(face_folder):
-                img = cv2.imread(os.path.join(face_folder, image))
-
-                if img is None:
+            dir = "/media/frigate/clips/faces"
+            for name in os.listdir(dir):
+                if name == "train":
                     continue
 
-                img = self.align_face(img, img.shape[1], img.shape[0])
-                emb = self.face_embedder([img])[0].squeeze()
-                face_embeddings_map[name].append(emb)
+                face_folder = os.path.join(dir, name)
 
-            idx += 1
+                if not os.path.isdir(face_folder):
+                    continue
+
+                face_embeddings_map[name] = []
+                for image in os.listdir(face_folder):
+                    img = cv2.imread(os.path.join(face_folder, image))
+
+                    if img is None:
+                        continue
+
+                    img = self.align_face(img, img.shape[1], img.shape[0])
+                    emb = self.face_embedder([img])[0].squeeze()
+                    face_embeddings_map[name].append(emb)
+
+                idx += 1
+
+            self.model_builder_queue.put(face_embeddings_map)
+
+        thread = threading.Thread(target=build_model, daemon=True)
+        thread.start()
+
+    def build(self):
+        if not self.landmark_detector:
+            self.init_landmark_detector()
+            return None
+
+        if self.model_builder_queue is not None:
+            try:
+                face_embeddings_map: dict[str, list[np.ndarray]] = (
+                    self.model_builder_queue.get(timeout=0.1)
+                )
+                self.model_builder_queue = None
+            except queue.Empty:
+                return
+        else:
+            self.run_build_task()
+            return
 
         if not face_embeddings_map:
             return
 
         for name, embs in face_embeddings_map.items():
-            self.mean_embs[name] = stats.trim_mean(embs, 0.15)
+            if embs:
+                self.mean_embs[name] = stats.trim_mean(embs, 0.15)
 
-    def similarity_to_confidence(
-        self, cosine_similarity: float, median=0.3, range_width=0.6, slope_factor=12
-    ):
-        """
-        Default sigmoid function to map cosine similarity to confidence.
-
-        Args:
-            cosine_similarity (float): The input cosine similarity.
-            median (float): Assumed median of cosine similarity distribution.
-            range_width (float): Assumed range of cosine similarity distribution (90th percentile - 10th percentile).
-            slope_factor (float): Adjusts the steepness of the curve.
-
-        Returns:
-            float: The confidence score.
-        """
-
-        # Calculate slope and bias
-        slope = slope_factor / range_width
-        bias = median
-
-        # Calculate confidence
-        confidence = 1 / (1 + np.exp(-slope * (cosine_similarity - bias)))
-        return confidence
+        logger.debug("Finished building ArcFace model")
 
     def classify(self, face_image):
         if not self.landmark_detector:
@@ -281,7 +235,7 @@ class ArcFaceRecognizer(FaceRecognizer):
 
         # get blur factor before aligning face
         blur_factor = self.get_blur_factor(face_image)
-        logger.debug(f"face detected with bluriness {blur_factor}")
+        logger.debug(f"face detected with blurriness {blur_factor}")
 
         # align face and run recognition
         img = self.align_face(face_image, face_image.shape[1], face_image.shape[0])
@@ -296,13 +250,121 @@ class ArcFaceRecognizer(FaceRecognizer):
             magnitude_B = np.linalg.norm(mean_emb)
 
             cosine_similarity = dot_product / (magnitude_A * magnitude_B)
-            confidence = self.similarity_to_confidence(cosine_similarity)
+            confidence = similarity_to_confidence(
+                cosine_similarity, median=0.5, range_width=0.6
+            )
 
-            if cosine_similarity > score:
+            if confidence > score:
                 score = confidence
                 label = name
 
-        if score < self.config.face_recognition.min_score:
+        return label, round(score * blur_factor, 2)
+
+
+class ArcFaceRecognizer(FaceRecognizer):
+    def __init__(self, config: FrigateConfig):
+        super().__init__(config)
+        self.mean_embs: dict[int, np.ndarray] = {}
+        self.face_embedder: ArcfaceEmbedding = ArcfaceEmbedding()
+        self.model_builder_queue: queue.Queue | None = None
+
+    def clear(self) -> None:
+        self.mean_embs = {}
+
+    def run_build_task(self) -> None:
+        self.model_builder_queue = queue.Queue()
+
+        def build_model():
+            face_embeddings_map: dict[str, list[np.ndarray]] = {}
+            idx = 0
+
+            dir = "/media/frigate/clips/faces"
+            for name in os.listdir(dir):
+                if name == "train":
+                    continue
+
+                face_folder = os.path.join(dir, name)
+
+                if not os.path.isdir(face_folder):
+                    continue
+
+                face_embeddings_map[name] = []
+                for image in os.listdir(face_folder):
+                    img = cv2.imread(os.path.join(face_folder, image))
+
+                    if img is None:
+                        continue
+
+                    img = self.align_face(img, img.shape[1], img.shape[0])
+                    emb = self.face_embedder([img])[0].squeeze()
+                    face_embeddings_map[name].append(emb)
+
+                idx += 1
+
+            self.model_builder_queue.put(face_embeddings_map)
+
+        thread = threading.Thread(target=build_model, daemon=True)
+        thread.start()
+
+    def build(self):
+        if not self.landmark_detector:
+            self.init_landmark_detector()
             return None
+
+        if self.model_builder_queue is not None:
+            try:
+                face_embeddings_map: dict[str, list[np.ndarray]] = (
+                    self.model_builder_queue.get(timeout=0.1)
+                )
+                self.model_builder_queue = None
+            except queue.Empty:
+                return
+        else:
+            self.run_build_task()
+            return
+
+        if not face_embeddings_map:
+            return
+
+        for name, embs in face_embeddings_map.items():
+            if embs:
+                self.mean_embs[name] = stats.trim_mean(embs, 0.15)
+
+        logger.debug("Finished building ArcFace model")
+
+    def classify(self, face_image):
+        if not self.landmark_detector:
+            return None
+
+        if not self.mean_embs:
+            self.build()
+
+            if not self.mean_embs:
+                return None
+
+        # face recognition is best run on grayscale images
+
+        # get blur factor before aligning face
+        blur_factor = self.get_blur_factor(face_image)
+        logger.debug(f"face detected with blurriness {blur_factor}")
+
+        # align face and run recognition
+        img = self.align_face(face_image, face_image.shape[1], face_image.shape[0])
+        embedding = self.face_embedder([img])[0].squeeze()
+
+        score = 0
+        label = ""
+
+        for name, mean_emb in self.mean_embs.items():
+            dot_product = np.dot(embedding, mean_emb)
+            magnitude_A = np.linalg.norm(embedding)
+            magnitude_B = np.linalg.norm(mean_emb)
+
+            cosine_similarity = dot_product / (magnitude_A * magnitude_B)
+            confidence = similarity_to_confidence(cosine_similarity)
+
+            if confidence > score:
+                score = confidence
+                label = name
 
         return label, round(score * blur_factor, 2)
