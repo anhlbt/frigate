@@ -81,8 +81,8 @@ class TensorRtDetector(DetectionApi):
             try:
                 trt.init_libnvinfer_plugins(self.trt_logger, "")
 
-                ctypes.cdll.LoadLibrary("/usr/local/lib/libyolo_layer.so")
-                # ctypes.cdll.LoadLibrary("/models/libmyplugins.so")
+                # ctypes.cdll.LoadLibrary("/usr/local/lib/libyolo_layer.so")
+                ctypes.cdll.LoadLibrary("/models/libcustom_plugins.so") # /media/anhlbt/SSD2/workspace/TensorRT-YOLO/lib/plugin/libcustom_plugins.so
             except OSError as e:
                 logger.error(
                     "ERROR: failed to load libraries. %s",
@@ -238,19 +238,19 @@ class TensorRtDetector(DetectionApi):
             for (ctypes, out) in zip(ctypes_outputs, self.outputs)
         ]
     def __init__(self, detector_config: TensorRTDetectorConfig):
-        assert (
-            TRT_SUPPORT
-        ), f"TensorRT libraries not found, {DETECTOR_KEY} detector not present"
+        assert TRT_SUPPORT, (
+            f"TensorRT libraries not found, {DETECTOR_KEY} detector not present"
+        )
 
         (cuda_err,) = cuda.cuInit(0)
-        assert (
-            cuda_err == cuda.CUresult.CUDA_SUCCESS
-        ), f"Failed to initialize cuda {cuda_err}"
+        assert cuda_err == cuda.CUresult.CUDA_SUCCESS, (
+            f"Failed to initialize cuda {cuda_err}"
+        )
         err, dev_count = cuda.cuDeviceGetCount()
         logger.debug(f"Num Available Devices: {dev_count}")
-        assert (
-            detector_config.device < dev_count
-        ), f"Invalid TensorRT Device Config. Device {detector_config.device} Invalid."
+        assert detector_config.device < dev_count, (
+            f"Invalid TensorRT Device Config. Device {detector_config.device} Invalid."
+        )
         err, self.cu_ctx = cuda.cuCtxCreate(
             cuda.CUctx_flags.CU_CTX_MAP_HOST, detector_config.device
         )

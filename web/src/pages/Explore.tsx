@@ -1,6 +1,6 @@
 import {
   useEmbeddingsReindexProgress,
-  useEventUpdate,
+  useTrackedObjectUpdate,
   useModelState,
 } from "@/api/ws";
 import ActivityIndicator from "@/components/indicators/activity-indicator";
@@ -15,6 +15,7 @@ import { formatSecondsToDuration } from "@/utils/dateUtil";
 import SearchView from "@/views/search/SearchView";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isMobileOnly } from "react-device-detect";
+import { useTranslation } from "react-i18next";
 import { LuCheck, LuExternalLink, LuX } from "react-icons/lu";
 import { TbExclamationCircle } from "react-icons/tb";
 import { Link } from "react-router-dom";
@@ -26,6 +27,8 @@ const API_LIMIT = 25;
 
 export default function Explore() {
   // search field handler
+
+  const { t } = useTranslation(["views/explore"]);
 
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
@@ -105,6 +108,8 @@ export default function Explore() {
           cameras: searchSearchParams["cameras"],
           labels: searchSearchParams["labels"],
           sub_labels: searchSearchParams["sub_labels"],
+          recognized_license_plate:
+            searchSearchParams["recognized_license_plate"],
           zones: searchSearchParams["zones"],
           before: searchSearchParams["before"],
           after: searchSearchParams["after"],
@@ -112,10 +117,13 @@ export default function Explore() {
           search_type: searchSearchParams["search_type"],
           min_score: searchSearchParams["min_score"],
           max_score: searchSearchParams["max_score"],
+          min_speed: searchSearchParams["min_speed"],
+          max_speed: searchSearchParams["max_speed"],
           has_snapshot: searchSearchParams["has_snapshot"],
           is_submitted: searchSearchParams["is_submitted"],
           has_clip: searchSearchParams["has_clip"],
           event_id: searchSearchParams["event_id"],
+          sort: searchSearchParams["sort"],
           limit:
             Object.keys(searchSearchParams).length == 0 ? API_LIMIT : undefined,
           timezone,
@@ -137,6 +145,8 @@ export default function Explore() {
         cameras: searchSearchParams["cameras"],
         labels: searchSearchParams["labels"],
         sub_labels: searchSearchParams["sub_labels"],
+        recognized_license_plate:
+          searchSearchParams["recognized_license_plate"],
         zones: searchSearchParams["zones"],
         before: searchSearchParams["before"],
         after: searchSearchParams["after"],
@@ -144,10 +154,13 @@ export default function Explore() {
         search_type: searchSearchParams["search_type"],
         min_score: searchSearchParams["min_score"],
         max_score: searchSearchParams["max_score"],
+        min_speed: searchSearchParams["min_speed"],
+        max_speed: searchSearchParams["max_speed"],
         has_snapshot: searchSearchParams["has_snapshot"],
         is_submitted: searchSearchParams["is_submitted"],
         has_clip: searchSearchParams["has_clip"],
         event_id: searchSearchParams["event_id"],
+        sort: searchSearchParams["sort"],
         timezone,
         include_thumbnails: 0,
       },
@@ -165,12 +178,17 @@ export default function Explore() {
 
     const [url, params] = searchQuery;
 
-    // If it's not the first page, use the last item's start_time as the 'before' parameter
+    const isAscending = params.sort?.includes("date_asc");
+
     if (pageIndex > 0 && previousPageData) {
       const lastDate = previousPageData[previousPageData.length - 1].start_time;
       return [
         url,
-        { ...params, before: lastDate.toString(), limit: API_LIMIT },
+        {
+          ...params,
+          [isAscending ? "after" : "before"]: lastDate.toString(),
+          limit: API_LIMIT,
+        },
       ];
     }
 
@@ -186,7 +204,9 @@ export default function Explore() {
     revalidateAll: false,
     onError: (error) => {
       toast.error(
-        `Error fetching tracked objects: ${error.response.data.message}`,
+        t("fetchingTrackedObjectsFailed", {
+          errorMessage: error.response.data.message,
+        }),
         {
           position: "top-center",
         },
@@ -227,15 +247,15 @@ export default function Explore() {
 
   // mutation and revalidation
 
-  const eventUpdate = useEventUpdate();
+  const trackedObjectUpdate = useTrackedObjectUpdate();
 
   useEffect(() => {
-    if (eventUpdate) {
+    if (trackedObjectUpdate) {
       mutate();
     }
     // mutate / revalidate when event description updates come in
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventUpdate]);
+  }, [trackedObjectUpdate]);
 
   // embeddings reindex progress
 
@@ -256,20 +276,41 @@ export default function Explore() {
 
   // model states
 
-  const { payload: textModelState } = useModelState(
-    "jinaai/jina-clip-v1-text_model_fp16.onnx",
-  );
-  const { payload: textTokenizerState } = useModelState(
-    "jinaai/jina-clip-v1-tokenizer",
-  );
-  const modelFile =
-    config?.semantic_search.model_size === "large"
-      ? "jinaai/jina-clip-v1-vision_model_fp16.onnx"
-      : "jinaai/jina-clip-v1-vision_model_quantized.onnx";
+  const modelVersion = config?.semantic_search.model || "jinav1";
+  const modelSize = config?.semantic_search.model_size || "small";
 
-  const { payload: visionModelState } = useModelState(modelFile);
+  // Text model state
+  const { payload: textModelState } = useModelState(
+    modelVersion === "jinav1"
+      ? "jinaai/jina-clip-v1-text_model_fp16.onnx"
+      : modelSize === "large"
+        ? "jinaai/jina-clip-v2-model_fp16.onnx"
+        : "jinaai/jina-clip-v2-model_quantized.onnx",
+  );
+
+  // Tokenizer state
+  const { payload: textTokenizerState } = useModelState(
+    modelVersion === "jinav1"
+      ? "jinaai/jina-clip-v1-tokenizer"
+      : "jinaai/jina-clip-v2-tokenizer",
+  );
+
+  // Vision model state (same as text model for jinav2)
+  const visionModelFile =
+    modelVersion === "jinav1"
+      ? modelSize === "large"
+        ? "jinaai/jina-clip-v1-vision_model_fp16.onnx"
+        : "jinaai/jina-clip-v1-vision_model_quantized.onnx"
+      : modelSize === "large"
+        ? "jinaai/jina-clip-v2-model_fp16.onnx"
+        : "jinaai/jina-clip-v2-model_quantized.onnx";
+  const { payload: visionModelState } = useModelState(visionModelFile);
+
+  // Preprocessor/feature extractor state
   const { payload: visionFeatureExtractorState } = useModelState(
-    "jinaai/jina-clip-v1-preprocessor_config.json",
+    modelVersion === "jinav1"
+      ? "jinaai/jina-clip-v1-preprocessor_config.json"
+      : "jinaai/jina-clip-v2-preprocessor_config.json",
   );
 
   const allModelsLoaded = useMemo(() => {
@@ -321,13 +362,12 @@ export default function Explore() {
           <div className="flex max-w-96 flex-col items-center justify-center space-y-3 rounded-lg bg-background/50 p-5">
             <div className="my-5 flex flex-col items-center gap-2 text-xl">
               <TbExclamationCircle className="mb-3 size-10" />
-              <div>Search Unavailable</div>
+              <div>{t("exploreIsUnavailable.title")}</div>
             </div>
             {embeddingsReindexing && allModelsLoaded && (
               <>
                 <div className="text-center text-primary-variant">
-                  Search can be used after tracked object embeddings have
-                  finished reindexing.
+                  {t("exploreIsUnavailable.embeddingsReindexing.context")}
                 </div>
                 <div className="pt-5 text-center">
                   <AnimatedCircularProgressBar
@@ -343,29 +383,35 @@ export default function Explore() {
                     <div className="mb-3 flex flex-col items-center justify-center gap-1">
                       <div className="text-primary-variant">
                         {reindexState.time_remaining === -1
-                          ? "Starting up..."
-                          : "Estimated time remaining:"}
+                          ? t(
+                              "exploreIsUnavailable.embeddingsReindexing.startingUp",
+                            )
+                          : t(
+                              "exploreIsUnavailable.embeddingsReindexing.estimatedTime",
+                            )}
                       </div>
                       {reindexState.time_remaining >= 0 &&
                         (formatSecondsToDuration(reindexState.time_remaining) ||
-                          "Finishing shortly")}
+                          t(
+                            "exploreIsUnavailable.embeddingsReindexing.finishingShortly",
+                          ))}
                     </div>
                   )}
                   <div className="flex flex-row items-center justify-center gap-3">
                     <span className="text-primary-variant">
-                      Thumbnails embedded:
+                      t("exploreIsUnavailable.embeddingsReindexing.step.thumbnailsEmbedded")
                     </span>
                     {reindexState.thumbnails}
                   </div>
                   <div className="flex flex-row items-center justify-center gap-3">
                     <span className="text-primary-variant">
-                      Descriptions embedded:
+                      t("exploreIsUnavailable.embeddingsReindexing.step.descriptionsEmbedded")
                     </span>
                     {reindexState.descriptions}
                   </div>
                   <div className="flex flex-row items-center justify-center gap-3">
                     <span className="text-primary-variant">
-                      Tracked objects processed:
+                      t("exploreIsUnavailable.embeddingsReindexing.step.trackedObjectsProcessed")
                     </span>
                     {reindexState.processed_objects} /{" "}
                     {reindexState.total_objects}
@@ -376,26 +422,32 @@ export default function Explore() {
             {!allModelsLoaded && (
               <>
                 <div className="text-center text-primary-variant">
-                  Frigate is downloading the necessary embeddings models to
-                  support semantic searching. This may take several minutes
-                  depending on the speed of your network connection.
+                  {t("exploreIsUnavailable.downloadingModels.context")}
                 </div>
                 <div className="flex w-96 flex-col gap-2 py-5">
                   <div className="flex flex-row items-center justify-center gap-2">
                     {renderModelStateIcon(visionModelState)}
-                    Vision model
+                    {t(
+                      "exploreIsUnavailable.downloadingModels.setup.visionModel",
+                    )}
                   </div>
                   <div className="flex flex-row items-center justify-center gap-2">
                     {renderModelStateIcon(visionFeatureExtractorState)}
-                    Vision model feature extractor
+                    {t(
+                      "exploreIsUnavailable.downloadingModels.setup.visionModelFeatureExtractor",
+                    )}
                   </div>
                   <div className="flex flex-row items-center justify-center gap-2">
                     {renderModelStateIcon(textModelState)}
-                    Text model
+                    {t(
+                      "exploreIsUnavailable.downloadingModels.setup.textModel",
+                    )}
                   </div>
                   <div className="flex flex-row items-center justify-center gap-2">
                     {renderModelStateIcon(textTokenizerState)}
-                    Text tokenizer
+                    {t(
+                      "exploreIsUnavailable.downloadingModels.setup.textTokenizer",
+                    )}
                   </div>
                 </div>
                 {(textModelState === "error" ||
@@ -403,12 +455,11 @@ export default function Explore() {
                   visionModelState === "error" ||
                   visionFeatureExtractorState === "error") && (
                   <div className="my-3 max-w-96 text-center text-danger">
-                    An error has occurred. Check Frigate logs.
+                    {t("exploreIsUnavailable.downloadingModels.error")}
                   </div>
                 )}
                 <div className="text-center text-primary-variant">
-                  You may want to reindex the embeddings of your tracked objects
-                  once the models are downloaded.
+                  {t("exploreIsUnavailable.downloadingModels.tips.context")}
                 </div>
                 <div className="flex items-center text-primary-variant">
                   <Link
@@ -417,7 +468,9 @@ export default function Explore() {
                     rel="noopener noreferrer"
                     className="inline"
                   >
-                    Read the documentation{" "}
+                    {t(
+                      "exploreIsUnavailable.downloadingModels.tips.documentation",
+                    )}{" "}
                     <LuExternalLink className="ml-2 inline-flex size-3" />
                   </Link>
                 </div>

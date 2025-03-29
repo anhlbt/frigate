@@ -38,6 +38,9 @@ import { Link } from "react-router-dom";
 import { isDesktop } from "react-device-detect";
 import { StatusBarMessagesContext } from "@/context/statusbar-provider";
 
+import { useSearchEffect } from "@/hooks/use-overlay-state";
+import { useTranslation } from "react-i18next";
+
 type MasksAndZoneViewProps = {
   selectedCamera: string;
   selectedZoneMask?: PolygonType[];
@@ -49,6 +52,7 @@ export default function MasksAndZonesView({
   selectedZoneMask,
   setUnsavedChanges,
 }: MasksAndZoneViewProps) {
+  const { t } = useTranslation(["views/settings"]);
   const { data: config } = useSWR<FrigateConfig>("config");
   const [allPolygons, setAllPolygons] = useState<Polygon[]>([]);
   const [editingPolygons, setEditingPolygons] = useState<Polygon[]>([]);
@@ -61,6 +65,8 @@ export default function MasksAndZonesView({
   );
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [editPane, setEditPane] = useState<PolygonType | undefined>(undefined);
+  const [activeLine, setActiveLine] = useState<number | undefined>();
+  const [snapPoints, setSnapPoints] = useState(false);
 
   const { addMessage } = useContext(StatusBarMessagesContext)!;
 
@@ -141,7 +147,7 @@ export default function MasksAndZonesView({
     }
   }, [scaledHeight, aspectRatio]);
 
-  const handleNewPolygon = (type: PolygonType) => {
+  const handleNewPolygon = (type: PolygonType, coordinates?: number[][]) => {
     if (!cameraConfig) {
       return;
     }
@@ -160,8 +166,9 @@ export default function MasksAndZonesView({
     setEditingPolygons([
       ...(allPolygons || []),
       {
-        points: [],
-        isFinished: false,
+        points: coordinates ?? [],
+        distances: [],
+        isFinished: coordinates ? true : false,
         type,
         typeIndex: 9999,
         name: "",
@@ -178,8 +185,8 @@ export default function MasksAndZonesView({
     setActivePolygonIndex(undefined);
     setHoveredPolygonIndex(null);
     setUnsavedChanges(false);
-    document.title = "Mask and Zone Editor - Frigate";
-  }, [allPolygons, setUnsavedChanges]);
+    document.title = t("documentTitle.masksAndZones");
+  }, [allPolygons, setUnsavedChanges, t]);
 
   const handleSave = useCallback(() => {
     setAllPolygons([...(editingPolygons ?? [])]);
@@ -214,12 +221,16 @@ export default function MasksAndZonesView({
             .map((point) => `${point[0]},${point[1]}`)
             .join(","),
         );
-        toast.success(`Copied coordinates for ${poly.name} to clipboard.`);
+        toast.success(
+          t("masksAndZones.toast.success.copyCoordinates", {
+            polyName: poly.name,
+          }),
+        );
       } else {
-        toast.error("Could not copy coordinates to clipboard.");
+        toast.error(t("masksAndZones.toast.error.copyCoordinatesFailed"));
       }
     },
-    [allPolygons, scaledHeight, scaledWidth],
+    [allPolygons, scaledHeight, scaledWidth, t],
   );
 
   useEffect(() => {
@@ -238,6 +249,8 @@ export default function MasksAndZonesView({
             scaledWidth,
             scaledHeight,
           ),
+          distances:
+            zoneData.distances?.map((distance) => parseFloat(distance)) ?? [],
           isFinished: true,
           color: zoneData.color,
         }),
@@ -267,6 +280,7 @@ export default function MasksAndZonesView({
           scaledWidth,
           scaledHeight,
         ),
+        distances: [],
         isFinished: true,
         color: [0, 0, 255],
       }));
@@ -290,6 +304,7 @@ export default function MasksAndZonesView({
           scaledWidth,
           scaledHeight,
         ),
+        distances: [],
         isFinished: true,
         color: [128, 128, 128],
       }));
@@ -316,6 +331,7 @@ export default function MasksAndZonesView({
                 scaledWidth,
                 scaledHeight,
               ),
+              distances: [],
               isFinished: true,
               color: [128, 128, 128],
             };
@@ -366,9 +382,51 @@ export default function MasksAndZonesView({
     }
   }, [selectedCamera]);
 
+  useSearchEffect("object_mask", (coordinates: string) => {
+    if (!scaledWidth || !scaledHeight || isLoading) {
+      return false;
+    }
+    // convert box points string to points array
+    const points = coordinates.split(",").map((p) => parseFloat(p));
+
+    const [x1, y1, w, h] = points;
+
+    // bottom center
+    const centerX = x1 + w / 2;
+    const bottomY = y1 + h;
+
+    const centerXAbs = centerX * scaledWidth;
+    const bottomYAbs = bottomY * scaledHeight;
+
+    // padding and clamp
+    const minPadding = 0.1 * w * scaledWidth;
+    const maxPadding = 0.3 * w * scaledWidth;
+    const padding = Math.min(
+      Math.max(minPadding, 0.15 * w * scaledWidth),
+      maxPadding,
+    );
+
+    const top = Math.max(0, bottomYAbs - padding);
+    const bottom = Math.min(scaledHeight, bottomYAbs + padding);
+    const left = Math.max(0, centerXAbs - padding);
+    const right = Math.min(scaledWidth, centerXAbs + padding);
+
+    const paddedBox = [
+      [left, top],
+      [right, top],
+      [right, bottom],
+      [left, bottom],
+    ];
+
+    setEditPane("object_mask");
+    setActivePolygonIndex(undefined);
+    handleNewPolygon("object_mask", paddedBox);
+    return true;
+  });
+
   useEffect(() => {
-    document.title = "Mask and Zone Editor - Frigate";
-  }, []);
+    document.title = t("documentTitle.masksAndZones");
+  }, [t]);
 
   if (!cameraConfig && !selectedCamera) {
     return <ActivityIndicator />;
@@ -391,6 +449,9 @@ export default function MasksAndZonesView({
                 setIsLoading={setIsLoading}
                 onCancel={handleCancel}
                 onSave={handleSave}
+                setActiveLine={setActiveLine}
+                snapPoints={snapPoints}
+                setSnapPoints={setSnapPoints}
               />
             )}
             {editPane == "motion_mask" && (
@@ -404,6 +465,8 @@ export default function MasksAndZonesView({
                 setIsLoading={setIsLoading}
                 onCancel={handleCancel}
                 onSave={handleSave}
+                snapPoints={snapPoints}
+                setSnapPoints={setSnapPoints}
               />
             )}
             {editPane == "object_mask" && (
@@ -417,12 +480,14 @@ export default function MasksAndZonesView({
                 setIsLoading={setIsLoading}
                 onCancel={handleCancel}
                 onSave={handleSave}
+                snapPoints={snapPoints}
+                setSnapPoints={setSnapPoints}
               />
             )}
             {editPane === undefined && (
               <>
                 <Heading as="h3" className="my-2">
-                  Masks / Zones
+                  {t("menu.masksAndZones")}
                 </Heading>
                 <div className="flex w-full flex-col">
                   {(selectedZoneMask === undefined ||
@@ -431,15 +496,13 @@ export default function MasksAndZonesView({
                       <div className="my-3 flex flex-row items-center justify-between">
                         <HoverCard>
                           <HoverCardTrigger asChild>
-                            <div className="text-md cursor-default">Zones</div>
+                            <div className="text-md cursor-default">
+                              {t("masksAndZones.zones.label")}
+                            </div>
                           </HoverCardTrigger>
                           <HoverCardContent>
                             <div className="my-2 flex flex-col gap-2 text-sm text-primary-variant">
-                              <p>
-                                Zones allow you to define a specific area of the
-                                frame so you can determine whether or not an
-                                object is within a particular area.
-                              </p>
+                              <p>{t("masksAndZones.zones.desc.title")}</p>
                               <div className="flex items-center text-primary">
                                 <Link
                                   to="https://docs.frigate.video/configuration/zones"
@@ -447,7 +510,7 @@ export default function MasksAndZonesView({
                                   rel="noopener noreferrer"
                                   className="inline"
                                 >
-                                  Documentation{" "}
+                                  {t("masksAndZones.zones.desc.documentation")}{" "}
                                   <LuExternalLink className="ml-2 inline-flex size-3" />
                                 </Link>
                               </div>
@@ -459,7 +522,7 @@ export default function MasksAndZonesView({
                             <Button
                               variant="secondary"
                               className="size-6 rounded-md bg-secondary-foreground p-1 text-background"
-                              aria-label="Add a new zone"
+                              aria-label={t("masksAndZones.zones.add")}
                               onClick={() => {
                                 setEditPane("zone");
                                 handleNewPolygon("zone");
@@ -468,7 +531,9 @@ export default function MasksAndZonesView({
                               <LuPlus />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Add Zone</TooltipContent>
+                          <TooltipContent>
+                            {t("masksAndZones.zones.add")}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                       {allPolygons
@@ -498,17 +563,12 @@ export default function MasksAndZonesView({
                         <HoverCard>
                           <HoverCardTrigger asChild>
                             <div className="text-md cursor-default">
-                              Motion Masks
+                              {t("masksAndZones.motionMasks.label")}
                             </div>
                           </HoverCardTrigger>
                           <HoverCardContent>
                             <div className="my-2 flex flex-col gap-2 text-sm text-primary-variant">
-                              <p>
-                                Motion masks are used to prevent unwanted types
-                                of motion from triggering detection. Over
-                                masking will make it more difficult for objects
-                                to be tracked.
-                              </p>
+                              <p>{t("masksAndZones.motionMasks.desc.title")}</p>
                               <div className="flex items-center text-primary">
                                 <Link
                                   to="https://docs.frigate.video/configuration/masks#motion-masks"
@@ -516,7 +576,9 @@ export default function MasksAndZonesView({
                                   rel="noopener noreferrer"
                                   className="inline"
                                 >
-                                  Documentation{" "}
+                                  {t(
+                                    "masksAndZones.motionMasks.desc.documentation",
+                                  )}{" "}
                                   <LuExternalLink className="ml-2 inline-flex size-3" />
                                 </Link>
                               </div>
@@ -528,7 +590,7 @@ export default function MasksAndZonesView({
                             <Button
                               variant="secondary"
                               className="size-6 rounded-md bg-secondary-foreground p-1 text-background"
-                              aria-label="Add a new motion mask"
+                              aria-label={t("masksAndZones.motionMasks.add")}
                               onClick={() => {
                                 setEditPane("motion_mask");
                                 handleNewPolygon("motion_mask");
@@ -537,7 +599,9 @@ export default function MasksAndZonesView({
                               <LuPlus />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Add Motion Mask</TooltipContent>
+                          <TooltipContent>
+                            {t("masksAndZones.motionMasks.add")}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                       {allPolygons
@@ -569,16 +633,12 @@ export default function MasksAndZonesView({
                         <HoverCard>
                           <HoverCardTrigger asChild>
                             <div className="text-md cursor-default">
-                              Object Masks
+                              {t("masksAndZones.objectMasks.label")}
                             </div>
                           </HoverCardTrigger>
                           <HoverCardContent>
                             <div className="my-2 flex flex-col gap-2 text-sm text-primary-variant">
-                              <p>
-                                Object filter masks are used to filter out false
-                                positives for a given object type based on
-                                location.
-                              </p>
+                              <p>{t("masksAndZones.objectMasks.desc.title")}</p>
                               <div className="flex items-center text-primary">
                                 <Link
                                   to="https://docs.frigate.video/configuration/masks#object-filter-masks"
@@ -586,7 +646,9 @@ export default function MasksAndZonesView({
                                   rel="noopener noreferrer"
                                   className="inline"
                                 >
-                                  Documentation{" "}
+                                  {t(
+                                    "masksAndZones.objectMasks.desc.documentation",
+                                  )}{" "}
                                   <LuExternalLink className="ml-2 inline-flex size-3" />
                                 </Link>
                               </div>
@@ -598,7 +660,7 @@ export default function MasksAndZonesView({
                             <Button
                               variant="secondary"
                               className="size-6 rounded-md bg-secondary-foreground p-1 text-background"
-                              aria-label="Add a new object mask"
+                              aria-label={t("masksAndZones.objectMasks.add")}
                               onClick={() => {
                                 setEditPane("object_mask");
                                 handleNewPolygon("object_mask");
@@ -607,7 +669,9 @@ export default function MasksAndZonesView({
                               <LuPlus />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Add Object Mask</TooltipContent>
+                          <TooltipContent>
+                            {t("masksAndZones.objectMasks.add")}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                       {allPolygons
@@ -653,6 +717,8 @@ export default function MasksAndZonesView({
                   activePolygonIndex={activePolygonIndex}
                   hoveredPolygonIndex={hoveredPolygonIndex}
                   selectedZoneMask={selectedZoneMask}
+                  activeLine={activeLine}
+                  snapPoints={true}
                 />
               ) : (
                 <Skeleton className="size-full" />

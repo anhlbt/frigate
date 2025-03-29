@@ -3,27 +3,69 @@
 # https://askubuntu.com/questions/972516/debian-frontend-environment-variable
 ARG DEBIAN_FRONTEND=noninteractive
 
-ARG TRT_BASE=nvcr.io/nvidia/tensorrt:23.10-py3
+ARG TRT_BASE=nvcr.io/nvidia/tensorrt:23.12-py3
+# ARG TRT_BASE=nvcr.io/nvidia/tensorrt:24.09-py3
 
 # Build TensorRT-specific library
 FROM ${TRT_BASE} AS trt-deps
 
+ARG TARGETARCH
 ARG COMPUTE_LEVEL
 
+
+## remove libnvparsers-dev
 RUN apt-get update \
-    && apt-get install -y git build-essential cuda-nvcc-* cuda-nvtx-* libnvinfer-dev libnvinfer-plugin-dev libnvparsers-dev libnvonnxparsers-dev \
+    && apt-get install -y git build-essential cuda-nvcc-* cuda-nvtx-* libnvinfer-dev libnvinfer-plugin-dev libnvonnxparsers-dev libnvparsers-dev \
     && rm -rf /var/lib/apt/lists/*
 RUN --mount=type=bind,source=docker/tensorrt/detector/tensorrt_libyolo.sh,target=/tensorrt_libyolo.sh \
     /tensorrt_libyolo.sh
 
+# COPY required individual CUDA deps
+RUN mkdir -p /usr/local/cuda-deps
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      cp /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcurand.so.* /usr/local/cuda-deps/ && \
+      cp /usr/local/cuda-12.6/targets/x86_64-linux/lib/libnvrtc.so.* /usr/local/cuda-deps/ ; \
+    fi
+
 # Frigate w/ TensorRT Support as separate image
 FROM deps AS tensorrt-base
+
+# Set environment and working directory
+ENV TZ=Asia/Shanghai \
+    PATH="${PATH}:/usr/local/tensorrt/bin" \
+    LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:/usr/local/tensorrt/lib"
+
+# Install requried libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    build-essential \
+    gdb \
+    libopencv-dev \
+    wget \
+    git \
+    pkg-config \
+    ssh \
+    pbzip2 \
+    bzip2 \
+    unzip \
+    axel
+
+# Install TensorRT
+RUN axel --insecure -o /tmp/tensorrt.tar.gz https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/10.4.0/tars/TensorRT-10.4.0.26.Linux.x86_64-gnu.cuda-12.6.tar.gz \
+    && tar -xvf /tmp/tensorrt.tar.gz -C /usr/local --transform 's/^TensorRT-10.4.0.26/tensorrt/' \
+    && rm -f /tmp/tensorrt.tar.gz
+
 
 #Disable S6 Global timeout
 ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=0
 
+# COPY TensorRT Model Generation Deps
 COPY --from=trt-deps /usr/local/lib/libyolo_layer.so /usr/local/lib/libyolo_layer.so
 COPY --from=trt-deps /usr/local/src/tensorrt_demos /usr/local/src/tensorrt_demos
+
+# COPY Individual CUDA deps folder
+COPY --from=trt-deps /usr/local/cuda-deps /usr/local/cuda
+
 COPY docker/tensorrt/detector/rootfs/ /
 ENV YOLO_MODELS=""
 

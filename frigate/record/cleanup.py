@@ -12,7 +12,7 @@ from playhouse.sqlite_ext import SqliteExtDatabase
 
 from frigate.config import CameraConfig, FrigateConfig, RetainModeEnum
 from frigate.const import CACHE_DIR, CLIPS_DIR, MAX_WAL_SIZE, RECORD_DIR
-from frigate.models import Previews, Recordings, ReviewSegment
+from frigate.models import Previews, Recordings, ReviewSegment, UserReviewStatus
 from frigate.record.util import remove_empty_directories, sync_recordings
 from frigate.util.builtin import clear_and_unlink, get_tomorrow_at_time
 
@@ -90,6 +90,10 @@ class RecordingCleanup(threading.Thread):
             ReviewSegment.delete().where(
                 ReviewSegment.id << deleted_reviews_list[i : i + max_deletes]
             ).execute()
+            UserReviewStatus.delete().where(
+                UserReviewStatus.review_segment
+                << deleted_reviews_list[i : i + max_deletes]
+            ).execute()
 
     def expire_existing_camera_recordings(
         self, expire_date: float, config: CameraConfig, reviews: ReviewSegment
@@ -121,22 +125,29 @@ class RecordingCleanup(threading.Thread):
         review_start = 0
         deleted_recordings = set()
         kept_recordings: list[tuple[float, float]] = []
+        recording: Recordings
         for recording in recordings:
             keep = False
             mode = None
             # Now look for a reason to keep this recording segment
             for idx in range(review_start, len(reviews)):
                 review: ReviewSegment = reviews[idx]
+                severity = review.severity
+                pre_capture = config.record.get_review_pre_capture(severity)
+                post_capture = config.record.get_review_post_capture(severity)
 
                 # if the review starts in the future, stop checking reviews
                 # and let this recording segment expire
-                if review.start_time > recording.end_time:
+                if review.start_time - pre_capture > recording.end_time:
                     keep = False
                     break
 
                 # if the review is in progress or ends after the recording starts, keep it
                 # and stop looking at reviews
-                if review.end_time is None or review.end_time >= recording.start_time:
+                if (
+                    review.end_time is None
+                    or review.end_time + post_capture >= recording.start_time
+                ):
                     keep = True
                     mode = (
                         config.record.alerts.retain.mode
@@ -149,7 +160,7 @@ class RecordingCleanup(threading.Thread):
                 # this review and check the next review for an overlap.
                 # since the review and recordings are sorted, we can skip review
                 # that end before the previous recording segment started on future segments
-                if review.end_time < recording.start_time:
+                if review.end_time + post_capture < recording.start_time:
                     review_start = idx
 
             # Delete recordings outside of the retention window or based on the retention mode

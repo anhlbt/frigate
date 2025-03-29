@@ -15,13 +15,17 @@ import {
   SearchFilter,
   SearchFilters,
   SearchSource,
+  SearchSortType,
 } from "@/types/search";
 import { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
-import { MdLabel } from "react-icons/md";
+import { MdLabel, MdSort } from "react-icons/md";
 import PlatformAwareDialog from "../overlay/dialog/PlatformAwareDialog";
 import SearchFilterDialog from "../overlay/dialog/SearchFilterDialog";
 import { CalendarRangeFilterButton } from "./CalendarFilterButton";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+
+import { useTranslation } from "react-i18next";
 
 type SearchFilterGroupProps = {
   className: string;
@@ -37,6 +41,7 @@ export default function SearchFilterGroup({
   filterList,
   onUpdateFilter,
 }: SearchFilterGroupProps) {
+  const { t } = useTranslation(["components/filter"]);
   const { data: config } = useSWR<FrigateConfig>("config", {
     revalidateOnFocus: false,
   });
@@ -59,7 +64,9 @@ export default function SearchFilterGroup({
       }
       const cameraConfig = config.cameras[camera];
       cameraConfig.objects.track.forEach((label) => {
-        labels.add(label);
+        if (!config.model.all_attributes.includes(label)) {
+          labels.add(label);
+        }
       });
 
       if (cameraConfig.audio.enabled_in_config) {
@@ -106,6 +113,28 @@ export default function SearchFilterGroup({
     }),
     [config, allLabels, allZones],
   );
+
+  const availableSortTypes = useMemo(() => {
+    const sortTypes = ["date_asc", "date_desc"];
+    if (filter?.min_score || filter?.max_score) {
+      sortTypes.push("score_desc", "score_asc");
+    }
+    if (filter?.min_speed || filter?.max_speed) {
+      sortTypes.push("speed_desc", "speed_asc");
+    }
+    if (filter?.event_id || filter?.query) {
+      sortTypes.push("relevance");
+    }
+    return sortTypes as SearchSortType[];
+  }, [filter]);
+
+  const defaultSortType = useMemo<SearchSortType>(() => {
+    if (filter?.query || filter?.event_id) {
+      return "relevance";
+    } else {
+      return "date_desc";
+    }
+  }, [filter]);
 
   const groups = useMemo(() => {
     if (!config) {
@@ -169,7 +198,7 @@ export default function SearchFilterGroup({
                   to: new Date(filter.before * 1000),
                 }
           }
-          defaultText={isMobile ? "Dates" : "All Dates"}
+          defaultText={isMobile ? t("dates.all.short") : t("dates.all.title")}
           updateSelectedRange={onUpdateSelectedRange}
         />
       )}
@@ -179,6 +208,16 @@ export default function SearchFilterGroup({
         filterValues={filterValues}
         onUpdateFilter={onUpdateFilter}
       />
+      {filters.includes("sort") && Object.keys(filter ?? {}).length > 0 && (
+        <SortTypeButton
+          availableSortTypes={availableSortTypes ?? []}
+          defaultSortType={defaultSortType}
+          selectedSortType={filter?.sort}
+          updateSortType={(newSort) => {
+            onUpdateFilter({ ...filter, sort: newSort });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -193,6 +232,7 @@ function GeneralFilterButton({
   selectedLabels,
   updateLabelFilter,
 }: GeneralFilterButtonProps) {
+  const { t } = useTranslation(["components/filter"]);
   const [open, setOpen] = useState(false);
   const [currentLabels, setCurrentLabels] = useState<string[] | undefined>(
     selectedLabels,
@@ -200,19 +240,21 @@ function GeneralFilterButton({
 
   const buttonText = useMemo(() => {
     if (isMobile) {
-      return "Labels";
+      return t("labels.all.short");
     }
 
     if (!selectedLabels || selectedLabels.length == 0) {
-      return "All Labels";
+      return t("labels.all.title");
     }
 
     if (selectedLabels.length == 1) {
-      return selectedLabels[0];
+      return t(selectedLabels[0], { ns: "objects" });
     }
 
-    return `${selectedLabels.length} Labels`;
-  }, [selectedLabels]);
+    return t("labels.count", {
+      count: selectedLabels.length,
+    });
+  }, [selectedLabels, t]);
 
   // ui
 
@@ -227,7 +269,7 @@ function GeneralFilterButton({
       size="sm"
       variant={selectedLabels?.length ? "select" : "default"}
       className="flex items-center gap-2 capitalize"
-      aria-label="Labels"
+      aria-label={t("labels.label")}
     >
       <MdLabel
         className={`${selectedLabels?.length ? "text-selected-foreground" : "text-secondary-foreground"}`}
@@ -287,6 +329,7 @@ export function GeneralFilterContent({
   setCurrentLabels,
   onClose,
 }: GeneralFilterContentProps) {
+  const { t } = useTranslation(["components/filter"]);
   return (
     <>
       <div className="overflow-x-hidden">
@@ -295,7 +338,7 @@ export function GeneralFilterContent({
             className="mx-2 cursor-pointer text-primary"
             htmlFor="allLabels"
           >
-            All Labels
+            {t("labels.all.title")}
           </Label>
           <Switch
             className="ml-1"
@@ -312,7 +355,7 @@ export function GeneralFilterContent({
           {allLabels.map((item) => (
             <FilterSwitch
               key={item}
-              label={item.replaceAll("_", " ")}
+              label={t(item, { ns: "objects" })}
               isChecked={currentLabels?.includes(item) ?? false}
               onCheckedChange={(isChecked) => {
                 if (isChecked) {
@@ -337,7 +380,7 @@ export function GeneralFilterContent({
       <DropdownMenuSeparator />
       <div className="flex items-center justify-evenly p-2">
         <Button
-          aria-label="Apply"
+          aria-label={t("button.apply", { ns: "common" })}
           variant="select"
           onClick={() => {
             if (selectedLabels != currentLabels) {
@@ -347,16 +390,192 @@ export function GeneralFilterContent({
             onClose();
           }}
         >
-          Apply
+          {t("button.apply", { ns: "common" })}
         </Button>
         <Button
-          aria-label="Reset"
+          aria-label={t("button.reset", { ns: "common" })}
           onClick={() => {
             setCurrentLabels(undefined);
             updateLabelFilter(undefined);
           }}
         >
-          Reset
+          {t("button.reset", { ns: "common" })}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+type SortTypeButtonProps = {
+  availableSortTypes: SearchSortType[];
+  defaultSortType: SearchSortType;
+  selectedSortType: SearchSortType | undefined;
+  updateSortType: (sortType: SearchSortType | undefined) => void;
+};
+function SortTypeButton({
+  availableSortTypes,
+  defaultSortType,
+  selectedSortType,
+  updateSortType,
+}: SortTypeButtonProps) {
+  const { t } = useTranslation(["components/filter"]);
+  const [open, setOpen] = useState(false);
+  const [currentSortType, setCurrentSortType] = useState<
+    SearchSortType | undefined
+  >(selectedSortType as SearchSortType);
+
+  // ui
+
+  useEffect(() => {
+    setCurrentSortType(selectedSortType);
+    // only refresh when state changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSortType]);
+
+  const trigger = (
+    <Button
+      size="sm"
+      variant={
+        selectedSortType != defaultSortType && selectedSortType != undefined
+          ? "select"
+          : "default"
+      }
+      className="flex items-center gap-2 capitalize"
+      aria-label={t("labels.label")}
+    >
+      <MdSort
+        className={`${selectedSortType != defaultSortType && selectedSortType != undefined ? "text-selected-foreground" : "text-secondary-foreground"}`}
+      />
+      <div
+        className={`${selectedSortType != defaultSortType && selectedSortType != undefined ? "text-selected-foreground" : "text-primary"}`}
+      >
+        {t("sort.label")}
+      </div>
+    </Button>
+  );
+  const content = (
+    <SortTypeContent
+      availableSortTypes={availableSortTypes ?? []}
+      defaultSortType={defaultSortType}
+      selectedSortType={selectedSortType}
+      currentSortType={currentSortType}
+      setCurrentSortType={setCurrentSortType}
+      updateSortType={updateSortType}
+      onClose={() => setOpen(false)}
+    />
+  );
+
+  return (
+    <PlatformAwareDialog
+      trigger={trigger}
+      content={content}
+      contentClassName={
+        isDesktop
+          ? "scrollbar-container h-auto max-h-[80dvh] overflow-y-auto"
+          : "max-h-[75dvh] overflow-hidden p-4"
+      }
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) {
+          setCurrentSortType(selectedSortType);
+        }
+
+        setOpen(open);
+      }}
+    />
+  );
+}
+
+type SortTypeContentProps = {
+  availableSortTypes: SearchSortType[];
+  defaultSortType: SearchSortType;
+  selectedSortType: SearchSortType | undefined;
+  currentSortType: SearchSortType | undefined;
+  updateSortType: (sort_type: SearchSortType | undefined) => void;
+  setCurrentSortType: (sort_type: SearchSortType | undefined) => void;
+  onClose: () => void;
+};
+export function SortTypeContent({
+  availableSortTypes,
+  defaultSortType,
+  selectedSortType,
+  currentSortType,
+  updateSortType,
+  setCurrentSortType,
+  onClose,
+}: SortTypeContentProps) {
+  const { t } = useTranslation(["components/filter"]);
+  const sortLabels = {
+    date_asc: t("sort.dateAsc"),
+    date_desc: t("sort.dateDesc"),
+    score_asc: t("sort.scoreAsc"),
+    score_desc: t("sort.scoreDesc"),
+    speed_asc: t("sort.speedAsc"),
+    speed_desc: t("sort.speedDesc"),
+    relevance: t("sort.relevance"),
+  };
+  return (
+    <>
+      <div className="overflow-x-hidden">
+        <div className="my-2.5 flex flex-col gap-2.5">
+          <RadioGroup
+            value={
+              Array.isArray(currentSortType)
+                ? currentSortType?.[0]
+                : (currentSortType ?? defaultSortType)
+            }
+            defaultValue={defaultSortType}
+            onValueChange={(value) =>
+              setCurrentSortType(value as SearchSortType)
+            }
+            className="w-full space-y-1"
+          >
+            {availableSortTypes.map((value) => (
+              <div className="flex flex-row gap-2">
+                <RadioGroupItem
+                  key={value}
+                  value={value}
+                  id={`sort-${value}`}
+                  className={
+                    value == (currentSortType ?? defaultSortType)
+                      ? "bg-selected from-selected/50 to-selected/90 text-selected"
+                      : "bg-secondary from-secondary/50 to-secondary/90 text-secondary"
+                  }
+                />
+                <Label
+                  htmlFor={`sort-${value}`}
+                  className="flex cursor-pointer items-center space-x-2"
+                >
+                  <span>{sortLabels[value]}</span>
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        </div>
+      </div>
+      <DropdownMenuSeparator />
+      <div className="flex items-center justify-evenly p-2">
+        <Button
+          aria-label={t("button.apply", { ns: "common" })}
+          variant="select"
+          onClick={() => {
+            if (selectedSortType != currentSortType) {
+              updateSortType(currentSortType);
+            }
+
+            onClose();
+          }}
+        >
+          {t("button.apply", { ns: "common" })}
+        </Button>
+        <Button
+          aria-label={t("button.reset", { ns: "common" })}
+          onClick={() => {
+            setCurrentSortType(undefined);
+            updateSortType(undefined);
+          }}
+        >
+          {t("button.reset", { ns: "common" })}
         </Button>
       </div>
     </>

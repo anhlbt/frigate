@@ -5,6 +5,7 @@ import { usePersistence } from "./use-persistence";
 export function useOverlayState<S>(
   key: string,
   defaultValue: S | undefined = undefined,
+  preserveSearch: boolean = true,
 ): [S | undefined, (value: S, replace?: boolean) => void] {
   const location = useLocation();
   const navigate = useNavigate();
@@ -15,7 +16,10 @@ export function useOverlayState<S>(
     (value: S, replace: boolean = false) => {
       const newLocationState = { ...currentLocationState };
       newLocationState[key] = value;
-      navigate(location.pathname, { state: newLocationState, replace });
+      navigate(location.pathname + (preserveSearch ? location.search : ""), {
+        state: newLocationState,
+        replace,
+      });
     },
     // we know that these deps are correct
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,6 +109,7 @@ export function useSearchEffect(
   key: string,
   callback: (value: string) => boolean,
 ) {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const param = useMemo(() => {
@@ -125,7 +130,7 @@ export function useSearchEffect(
     const remove = callback(param[1]);
 
     if (remove) {
-      setSearchParams(undefined, { replace: true });
+      setSearchParams(undefined, { state: location.state, replace: true });
     }
-  }, [param, callback, setSearchParams]);
+  }, [param, location.state, callback, setSearchParams]);
 }

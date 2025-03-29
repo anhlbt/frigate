@@ -146,7 +146,7 @@ The above configuration example can be added globally or on a per camera basis.
 
 ## Can I have "continuous" recordings, but only at certain times?
 
-Using Frigate UI, HomeAssistant, or MQTT, cameras can be automated to only record in certain situations or at certain times.
+Using Frigate UI, Home Assistant, or MQTT, cameras can be automated to only record in certain situations or at certain times.
 
 ## How do I export recordings?
 
@@ -182,6 +182,8 @@ In some cases the recordings files may be deleted but Frigate will not know this
 record:
   sync_recordings: True
 ```
+
+This feature is meant to fix variations in files, not completely delete entries in the database. If you delete all of your media, don't use `sync_recordings`, just stop Frigate, delete the `frigate.db` database, and restart.
 
 :::warning
 

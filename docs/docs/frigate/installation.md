@@ -3,11 +3,11 @@ id: installation
 title: Installation
 ---
 
-Frigate is a Docker container that can be run on any Docker host including as a [HassOS Addon](https://www.home-assistant.io/addons/). Note that a Home Assistant Addon is **not** the same thing as the integration. The [integration](/integrations/home-assistant) is required to integrate Frigate into Home Assistant.
+Frigate is a Docker container that can be run on any Docker host including as a [Home Assistant Add-on](https://www.home-assistant.io/addons/). Note that the Home Assistant Add-on is **not** the same thing as the integration. The [integration](/integrations/home-assistant) is required to integrate Frigate into Home Assistant, whether you are running Frigate as a standalone Docker container or as a Home Assistant Add-on.
 
 :::tip
 
-If you already have Frigate installed as a Home Assistant addon, check out the [getting started guide](../guides/getting_started#configuring-frigate) to configure Frigate.
+If you already have Frigate installed as a Home Assistant Add-on, check out the [getting started guide](../guides/getting_started#configuring-frigate) to configure Frigate.
 
 :::
 
@@ -45,7 +45,7 @@ The following ports are used by Frigate and can be mapped via docker as required
 | `8554` | RTSP restreaming. By default, these streams are unauthenticated. Authentication can be configured in go2rtc section of config.                                             |
 | `8555` | WebRTC connections for low latency live views.                                                                                                                             |
 
-#### Common docker compose storage configurations
+#### Common Docker Compose storage configurations
 
 Writing to a local disk or external USB drive:
 
@@ -73,19 +73,19 @@ Users of the Snapcraft build of Docker cannot use storage locations outside your
 
 Frigate utilizes shared memory to store frames during processing. The default `shm-size` provided by Docker is **64MB**.
 
-The default shm size of **128MB** is fine for setups with **2 cameras** detecting at **720p**. If Frigate is exiting with "Bus error" messages, it is likely because you have too many high resolution cameras and you need to specify a higher shm size, using [`--shm-size`](https://docs.docker.com/engine/reference/run/#runtime-constraints-on-resources) (or [`service.shm_size`](https://docs.docker.com/compose/compose-file/compose-file-v2/#shm_size) in docker-compose).
+The default shm size of **128MB** is fine for setups with **2 cameras** detecting at **720p**. If Frigate is exiting with "Bus error" messages, it is likely because you have too many high resolution cameras and you need to specify a higher shm size, using [`--shm-size`](https://docs.docker.com/engine/reference/run/#runtime-constraints-on-resources) (or [`service.shm_size`](https://docs.docker.com/compose/compose-file/compose-file-v2/#shm_size) in Docker Compose).
 
 The Frigate container also stores logs in shm, which can take up to **40MB**, so make sure to take this into account in your math as well.
 
 You can calculate the **minimum** shm size for each camera with the following formula using the resolution specified for detect:
 
 ```console
-# Replace <width> and <height>
+# Template for one camera without logs, replace <width> and <height>
 $ python -c 'print("{:.2f}MB".format((<width> * <height> * 1.5 * 20 + 270480) / 1048576))'
 
 # Example for 1280x720, including logs
-$ python -c 'print("{:.2f}MB".format((1280 * 720 * 1.5 * 20 + 270480) / 1048576)) + 40'
-46.63MB
+$ python -c 'print("{:.2f}MB".format((1280 * 720 * 1.5 * 20 + 270480) / 1048576 + 40))'
+66.63MB
 
 # Example for eight cameras detecting at 1280x720, including logs
 $ python -c 'print("{:.2f}MB".format(((1280 * 720 * 1.5 * 20 + 270480) / 1048576) * 8 + 40))'
@@ -100,9 +100,9 @@ By default, the Raspberry Pi limits the amount of memory available to the GPU. I
 
 Additionally, the USB Coral draws a considerable amount of power. If using any other USB devices such as an SSD, you will experience instability due to the Pi not providing enough power to USB devices. You will need to purchase an external USB hub with it's own power supply. Some have reported success with <a href="https://amzn.to/3a2mH0P" target="_blank" rel="nofollow noopener sponsored">this</a> (affiliate link).
 
-### Hailo-8L
+### Hailo-8
 
-The Hailo-8L is an M.2 card typically connected to a carrier board for PCIe, which then connects to the Raspberry Pi 5 as part of the AI Kit. However, it can also be used on other boards equipped with an M.2 M key edge connector.
+The Hailo-8 and Hailo-8L AI accelerators are available in both M.2 and HAT form factors for the Raspberry Pi. The M.2 version typically connects to a carrier board for PCIe, which then interfaces with the Raspberry Pi 5 as part of the AI Kit. The HAT version can be mounted directly onto compatible Raspberry Pi models. Both form factors have been successfully tested on x86 platforms as well, making them versatile options for various computing environments.
 
 #### Installation
 
@@ -111,13 +111,13 @@ For Raspberry Pi 5 users with the AI Kit, installation is straightforward. Simpl
 For other installations, follow these steps for installation:
 
 1. Install the driver from the [Hailo GitHub repository](https://github.com/hailo-ai/hailort-drivers). A convenient script for Linux is available to clone the repository, build the driver, and install it.
-2. Copy or download [this script](https://github.com/blakeblackshear/frigate/blob/41c9b13d2fffce508b32dfc971fa529b49295fbd/docker/hailo8l/user_installation.sh).
+2. Copy or download [this script](https://github.com/blakeblackshear/frigate/blob/dev/docker/hailo8l/user_installation.sh).
 3. Ensure it has execution permissions with `sudo chmod +x user_installation.sh`
 4. Run the script with `./user_installation.sh`
 
 #### Setup
 
-To set up Frigate, follow the default installation instructions, but use a Docker image with the `-h8l` suffix, for example: `ghcr.io/blakeblackshear/frigate:stable-h8l`
+To set up Frigate, follow the default installation instructions, for example: `ghcr.io/blakeblackshear/frigate:stable`
 
 Next, grant Docker permissions to access your hardware by adding the following lines to your `docker-compose.yml` file:
 
@@ -184,15 +184,15 @@ Next, you should configure [hardware object detection](/configuration/object_det
 
 ## Docker
 
-Running in Docker with compose is the recommended install method.
+Running through Docker with Docker Compose is the recommended install method.
 
 ```yaml
-version: "3.9"
 services:
   frigate:
     container_name: frigate
     privileged: true # this may not be necessary for all setups
     restart: unless-stopped
+    stop_grace_period: 30s # allow enough time to shut down the various services
     image: ghcr.io/blakeblackshear/frigate:stable
     shm_size: "512mb" # update for your cameras based on calculation above
     devices:
@@ -218,12 +218,13 @@ services:
       FRIGATE_RTSP_PASSWORD: "password"
 ```
 
-If you can't use docker compose, you can run the container with something similar to this:
+If you can't use Docker Compose, you can run the container with something similar to this:
 
 ```bash
 docker run -d \
   --name frigate \
   --restart=unless-stopped \
+  --stop-timeout 30 \
   --mount type=tmpfs,target=/tmp/cache,tmpfs-size=1000000000 \
   --device /dev/bus/usb:/dev/bus/usb \
   --device /dev/dri/renderD128 \
@@ -248,18 +249,18 @@ The official docker image tags for the current stable version are:
 The community supported docker image tags for the current stable version are:
 
 - `stable-tensorrt-jp5` - Frigate build optimized for nvidia Jetson devices running Jetpack 5
-- `stable-tensorrt-jp4` - Frigate build optimized for nvidia Jetson devices running Jetpack 4.6
+- `stable-tensorrt-jp6` - Frigate build optimized for nvidia Jetson devices running Jetpack 6
 - `stable-rk` - Frigate build for SBCs with Rockchip SoC
 - `stable-rocm` - Frigate build for [AMD GPUs](../configuration/object_detectors.md#amdrocm-gpu-detector)
   - `stable-h8l` - Frigate build for the Hailo-8L M.2 PICe Raspberry Pi 5 hat
 
-## Home Assistant Addon
+## Home Assistant Add-on
 
 :::warning
 
-As of HomeAssistant OS 10.2 and Core 2023.6 defining separate network storage for media is supported.
+As of Home Assistant Operating System 10.2 and Home Assistant 2023.6 defining separate network storage for media is supported.
 
-There are important limitations in Home Assistant Operating System to be aware of:
+There are important limitations in HA OS to be aware of:
 
 - Separate local storage for media is not yet supported by Home Assistant
 - AMD GPUs are not supported because HA OS does not include the mesa driver.
@@ -273,24 +274,27 @@ See [the network storage guide](/guides/ha_network_storage.md) for instructions 
 
 :::
 
-HassOS users can install via the addon repository.
+Home Assistant OS users can install via the Add-on repository.
 
-1. Navigate to Supervisor > Add-on Store > Repositories
-2. Add https://github.com/blakeblackshear/frigate-hass-addons
-3. Install your desired Frigate NVR Addon and navigate to it's page
+1. In Home Assistant, navigate to _Settings_ > _Add-ons_ > _Add-on Store_ > _Repositories_
+2. Add `https://github.com/blakeblackshear/frigate-hass-addons`
+3. Install the desired variant of the Frigate Add-on (see below)
 4. Setup your network configuration in the `Configuration` tab
-5. (not for proxy addon) Create the file `frigate.yaml` in your `config` directory with your detailed Frigate configuration
-6. Start the addon container
-7. (not for proxy addon) If you are using hardware acceleration for ffmpeg, you may need to disable "Protection mode"
+5. Start the Add-on
+6. Use the _Open Web UI_ button to access the Frigate UI, then click in the _cog icon_ > _Configuration editor_ and configure Frigate to your liking
 
-There are several versions of the addon available:
+There are several variants of the Add-on available:
 
-| Addon Version                  | Description                                                |
-| ------------------------------ | ---------------------------------------------------------- |
-| Frigate NVR                    | Current release with protection mode on                    |
-| Frigate NVR (Full Access)      | Current release with the option to disable protection mode |
-| Frigate NVR Beta               | Beta release with protection mode on                       |
-| Frigate NVR Beta (Full Access) | Beta release with the option to disable protection mode    |
+| Add-on Variant             | Description                                                |
+| -------------------------- | ---------------------------------------------------------- |
+| Frigate                    | Current release with protection mode on                    |
+| Frigate (Full Access)      | Current release with the option to disable protection mode |
+| Frigate Beta               | Beta release with protection mode on                       |
+| Frigate Beta (Full Access) | Beta release with the option to disable protection mode    |
+
+If you are using hardware acceleration for ffmpeg, you **may** need to use the _Full Access_ variant of the Add-on. This is because the Frigate Add-on runs in a container with limited access to the host system. The _Full Access_ variant allows you to disable _Protection mode_ and give Frigate full access to the host system.
+
+You can also edit the Frigate configuration file through the [VS Code Add-on](https://github.com/hassio-addons/addon-vscode) or similar. In that case, the configuration file will be at `/addon_configs/<addon_directory>/config.yml`, where `<addon_directory>` is specific to the variant of the Frigate Add-on you are running. See the list of directories [here](../configuration/index.md#accessing-add-on-config-dir).
 
 ## Kubernetes
 
@@ -303,8 +307,15 @@ To install make sure you have the [community app plugin here](https://forums.unr
 
 ## Proxmox
 
-It is recommended to run Frigate in LXC, rather than in a VM, for maximum performance. The setup can be complex so be prepared to read the Proxmox and LXC documentation. Suggestions include:
+[According to Proxmox documentation](https://pve.proxmox.com/pve-docs/pve-admin-guide.html#chapter_pct) it is recommended that you run application containers like Frigate inside a Proxmox QEMU VM. This will give you all the advantages of application containerization, while also providing the benefits that VMs offer, such as strong isolation from the host and the ability to live-migrate, which otherwise isn’t possible with containers.
 
+:::warning
+
+If you choose to run Frigate via LXC in Proxmox the setup can be complex so be prepared to read the Proxmox and LXC documentation, Frigate does not officially support running inside of an LXC.
+
+:::
+
+ Suggestions include:
 - For Intel-based hardware acceleration, to allow access to the `/dev/dri/renderD128` device with major number 226 and minor number 128, add the following lines to the `/etc/pve/lxc/<id>.conf` LXC configuration:
   - `lxc.cgroup2.devices.allow: c 226:128 rwm`
   - `lxc.mount.entry: /dev/dri/renderD128 dev/dri/renderD128 none bind,optional,create=file`
