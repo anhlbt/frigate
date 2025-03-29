@@ -1,7 +1,13 @@
 services:
   devcontainer:
+<<<<<<< HEAD
     container_name: frigate-dev
     # add groups from host for render, plugdev, video
+=======
+    container_name: frigate-devcontainer
+    # Check host system's actual render/video/plugdev group IDs with 'getent group render', 'getent group video', and 'getent group plugdev'
+    # Must add these exact IDs in container's group_add section or OpenVINO GPU acceleration will fail
+>>>>>>> 4aa493b96c2199e75f1a7bcb630bbcbc443a53a8
     group_add:
       - "109" # render
       - "110" # render
@@ -59,9 +65,11 @@ services:
       # - /dev/dri:/dev/dri # for intel hwaccel, needs to be updated for your hardware
   mqtt:
     container_name: mqtt
-    image: eclipse-mosquitto:1.6
+    image: eclipse-mosquitto:2.0
+    command: mosquitto -c /mosquitto-no-auth.conf # enable no-auth mode
     ports:
       - "1883:1883"
+<<<<<<< HEAD
 
   # devcontainer-main:
   #   hostname: frigate # don't change
@@ -144,3 +152,5 @@ services:
   #   # networks:
   #   #   - frigate
   #   network_mode: "host"        
+=======
+>>>>>>> 4aa493b96c2199e75f1a7bcb630bbcbc443a53a8

@@ -206,6 +206,9 @@ class EmbeddingMaintainer(threading.Thread):
                             self.embeddings.embed_description("", data, upsert=False),
                             pack=False,
                         )
+                    elif topic == EmbeddingsRequestEnum.reindex.value:
+                        response = self.embeddings.start_reindex()
+                        return "started" if response else "in_progress"
 
                 processors = [self.realtime_processors, self.post_processors]
                 for processor_list in processors:
@@ -233,6 +236,7 @@ class EmbeddingMaintainer(threading.Thread):
             return
 
         camera_config = self.config.cameras[camera]
+        self.embeddings.update_stats()
 
         # no need to process updated objects if face recognition, lpr, genai are disabled
         if not camera_config.genai.enabled and len(self.realtime_processors) == 0:
