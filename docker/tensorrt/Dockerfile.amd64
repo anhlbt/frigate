@@ -8,8 +8,8 @@ ARG PIP_BREAK_SYSTEM_PACKAGES=1
 
 FROM tensorrt-base AS frigate-tensorrt
 ARG PIP_BREAK_SYSTEM_PACKAGES
-# 8.6.1
-ENV TRT_VER=10.4.0.26
+ENV TRT_VER=8.6.1
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/lib/python3.11/dist-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH    
 
 # Install TensorRT wheels
 COPY docker/tensorrt/requirements-amd64.txt /requirements-tensorrt.txt
@@ -29,12 +29,9 @@ COPY --from=trt-deps /usr/local/lib/libyolo_layer.so /usr/local/lib/libyolo_laye
 RUN --mount=type=bind,from=trt-wheels,source=/trt-wheels,target=/deps/trt-wheels \
     pip3 install -U /deps/trt-wheels/*.whl
 
-
-
 # Fix library symlinks
 RUN ln -sf /usr/local/cuda/lib64/libnvrtc.so.11.2 /usr/local/cuda/lib64/libnvrtc.so \
     && ln -sf /usr/local/lib/python3.11/dist-packages/nvidia/cudnn/lib/libcudnn_ops_infer.so.8 /usr/local/cuda/lib64/libcudnn_ops_infer.so.8 \
     && ldconfig
 
 # Set library path
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/lib/python3.11/dist-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH    

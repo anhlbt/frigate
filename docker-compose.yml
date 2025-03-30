@@ -1,3 +1,4 @@
+version: "3"
 services:
   mqtt:
     hostname: mqtt
@@ -63,11 +64,6 @@ services:
     hostname: frigate # don't change
     container_name: frigate
     # add groups from host for render, plugdev, video
-=======
-    container_name: frigate-devcontainer
-    # Check host system's actual render/video/plugdev group IDs with 'getent group render', 'getent group video', and 'getent group plugdev'
-    # Must add these exact IDs in container's group_add section or OpenVINO GPU acceleration will fail
->>>>>>> 4aa493b96c2199e75f1a7bcb630bbcbc443a53a8
     group_add:
       - "109" # render
       - "110" # render
@@ -83,14 +79,12 @@ services:
       # target: devcontainer-trt 
     ## Uncomment this block for nvidia gpu support
     deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              # count: "all" # 1
-              device_ids: ['0'] # must comment the above line if this line is uncommented.
-              capabilities: [gpu]    
-    # runtime: nvidia  # Chỉ cần thêm dòng này nếu bạn muốn sử dụng GPU
+          resources:
+              reservations:
+                  devices:
+                      - driver: nvidia
+                        count: 1
+                        capabilities: [gpu]
     # environment:
     #   YOLO_MODELS: yolov7-320
     devices:
@@ -109,7 +103,6 @@ services:
     environment:
       - FRIGATE_RTSP_PASSWORD=admin
       - TZ=Asia/Ho_Chi_Minh
-      - LD_LIBRARY_PATH=/usr/local/cuda:/usr/local/lib/python3.11/dist-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
       # - PATH=/usr/lib/ffmpeg/7.0/bin:/usr/lib/ffmpeg/6.0/bin:/usr/lib/ffmpeg/5.0/bin:/usr/local/bin:/usr/local/sbin:/usr/local/go2rtc:/usr/local/nginx/sbin:/usr/local/tempio/bin:${PATH}
     dns:
     # ip route | awk '/default/ { print $3 }'
